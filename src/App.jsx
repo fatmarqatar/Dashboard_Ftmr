@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import ErrorBoundary from './ErrorBoundary';
+import LandingPage from './LandingPage';
 // Consolidated lucide-react import
-import { Undo, Download, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff } from 'lucide-react';
+import { Undo, Download, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User } from 'lucide-react';
 // Consolidated Chart.js imports, register first
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, BarElement, Filler } from 'chart.js';
 import { Pie, Bar, Line, Doughnut } from 'react-chartjs-2'; // Import react-chartjs-2 components after registration
 
 import { doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc, writeBatch, getDocs, arrayUnion, arrayRemove, query, where, or, orderBy, limit } from 'firebase/firestore';
-import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { app, db, auth, storage } from './firebase.js';
 
@@ -140,7 +141,7 @@ const DateInput = ({ value, onChange, readOnly }) => {
     const handleKeyDown = (e, field) => { if (e.key === 'Backspace') { if (field === 'year' && year === '') monthRef.current?.focus(); if (field === 'month' && month === '') dayRef.current?.focus(); } };
 
     return (
-        <div className={`flex items-center p-2 rounded-md date-input-print-style ${readOnly ? 'dark:bg-gray-800 bg-gray-100 cursor-not-allowed text-gray-400' : 'dark:bg-gray-700 bg-gray-200'}`}>
+    <div className={`flex items-center p-2 rounded-md date-input-print-style ${readOnly ? 'dark:bg-gray-800 bg-white cursor-not-allowed text-gray-400' : 'dark:bg-gray-700 bg-gray-100'}`}>
             <input ref={dayRef} type="text" placeholder="dd" value={day} onChange={handleDayChange} className="w-8 bg-transparent outline-none text-center" readOnly={readOnly}/>
             <span>/</span>
             <input ref={monthRef} type="text" placeholder="mm" value={month} onChange={handleMonthChange} onKeyDown={(e) => handleKeyDown(e, 'month')} className="w-8 bg-transparent outline-none text-center" readOnly={readOnly}/>
@@ -173,7 +174,7 @@ const EditableTH = ({ initialValue, onSave, className }) => {
     
     return (
         <th className={`p-0 font-semibold text-left ${className}`}>
-            <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 cursor-pointer" onClick={() => !isEditing && setIsEditing(true)}>
+            <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 cursor-pointer" onClick={() => !isEditing && setIsEditing(true)}>
                 {isEditing ? (
                     <input ref={inputRef} type="text" value={value} onChange={e => setValue(e.target.value)} onBlur={handleSave} onKeyDown={handleKeyDown} className="bg-gray-700 rounded-md px-1 w-full" />
                 ) : (
@@ -600,21 +601,24 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
                     <table className="w-full text-base font-medium border-separate" style={{borderSpacing: '0 4px'}}>
                         <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                             <tr>
-                                <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
-                                {columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
-                                <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
+                                <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
+                                {columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
+                                <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
+                                <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
+                                {columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
+                                <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
                             </tr>
                         </thead>
                         <tbody>
                             {filteredItems.map((item, index) => (
                                 <tr key={item.id} className="group/row">
-                                    <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-l-md">{index + 1}</td>
+                                    <td className="p-2 dark:bg-gray-800/50 bg-white rounded-l-md">{index + 1}</td>
                                     {columns.map(col => (
-                                        <td key={col.accessor} className="p-2 dark:bg-gray-800/50 bg-gray-50">
+                                        <td key={col.accessor} className="p-2 dark:bg-gray-800/50 bg-white">
                                             {col.render ? col.render(item) : item[col.accessor]}
                                         </td>
                                     ))}
-                                    <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-r-md">
+                                    <td className="p-2 dark:bg-gray-800/50 bg-white rounded-r-md">
                                         <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
                                             <button onClick={() => handleEdit(item)} className="p-1.5 hover:text-cyan-400"><Edit size={16}/></button>
                                             <button onClick={() => onDeleteRequest(item)} className="p-1.5 hover:text-red-400"><Trash2 size={16}/></button>
@@ -836,7 +840,7 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                     <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                         <tr>
                             <th className="p-0 font-semibold w-12">
-                                <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
+                                <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
                                     <input
                                         type="checkbox"
                                         onChange={() => onToggleAllTicks(vehicleList)}
@@ -847,7 +851,10 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                                 </div>
                             </th>
                             {['S.No', 'Vehicle No', 'Make', 'Model', 'Owner', 'Expiry', 'Status', 'Contact 1', 'Note', 'Actions'].map(h => (
-                                <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>
+                                <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>
+                            ))}
+                            {['S.No', 'Vehicle No', 'Make', 'Model', 'Owner', 'Expiry', 'Status', 'Contact 1', 'Note', 'Actions'].map(h => (
+                                <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>
                             ))}
                         </tr>
                     </thead>
@@ -856,7 +863,7 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                             const expired = isDateExpired(v.expiry);
                             const statusColor = v.status === 'Active' ? 'text-green-400' : 'text-yellow-400';
                             const isTicked = tickedVehicles.has(v.id);
-                            const cellClassName = `p-2 align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-gray-50'}`;
+                            const cellClassName = `p-2 align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-white'}`;
 
                             return (
                                 <tr key={v.id} className="group/row">
@@ -1422,21 +1429,21 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                             <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
                                 <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                                     <tr>
-                                        {['S.No', 'Document Name', 'Type', 'Number', 'Registration Date', 'Expiry Date', 'Status', 'Notes', 'Actions'].map(h => <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>)}
+                                        {['S.No', 'Document Name', 'Type', 'Number', 'Registration Date', 'Expiry Date', 'Status', 'Notes', 'Actions'].map(h => <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>)}
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredDocuments.map((doc, i) => (
                                         <tr key={doc.id} className="group/row">
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-l-md">{i+1}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 font-semibold">{doc.documentName}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">{doc.type}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">{doc.number}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">{formatDate(doc.registrationDate)}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">{formatDate(doc.expiryDate)}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50"><DocumentStatusBadge date={doc.expiryDate} /></td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 truncate max-w-xs">{doc.notes}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-r-md">
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white rounded-l-md">{i+1}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white font-semibold">{doc.documentName}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{doc.type}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{doc.number}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{formatDate(doc.registrationDate)}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{formatDate(doc.expiryDate)}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white"><DocumentStatusBadge date={doc.expiryDate} /></td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white truncate max-w-xs">{doc.notes}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white rounded-r-md">
                                                 <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
                                                     <button onClick={() => { setEditingDoc(doc); setShowDocModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button>
                                                     <button onClick={() => onDocDeleteRequest(doc)} className="p-1.5 hover:text-red-400"><Trash2 size={14}/></button>
@@ -1454,17 +1461,17 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                             <table className="w-full text-base font-medium border-separate" style={{borderSpacing: '0 4px'}}>
                                 <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                                     <tr>
-                                        <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
-                                        {credentialsConfig.columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
-                                        <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
+                                        <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
+                                        {credentialsConfig.columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
+                                        <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {filteredCredentials.map((item, index) => (
                                         <tr key={item.id} className="group/row">
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-l-md">{index + 1}</td>
+                                            <td className="p-2 dark:bg-gray-800/50 bg-white rounded-l-md">{index + 1}</td>
                                             {credentialsConfig.columns.map(col => (
-                                                <td key={col.accessor} className="p-2 dark:bg-gray-800/50 bg-gray-50">
+                                                <td key={col.accessor} className="p-2 dark:bg-gray-800/50 bg-white">
                                                     {col.render ? col.render(item) : item[col.accessor]}
                                                 </td>
                                             ))}
@@ -3585,6 +3592,7 @@ const PasscodeSettingsPage = ({ userId, appId, setConfirmAction }) => {
 
 // --- Main App Component ---
 export default function App() {
+    const [showLanding, setShowLanding] = useState(true); // Show landing page initially
     const [currentPage, setCurrentPage] = useState('notification');
     const [activeSubPage, setActiveSubPage] = useState('employees');
     const [user, setUser] = useState(null);
@@ -3601,6 +3609,7 @@ export default function App() {
     const [passcodeLoading, setPasscodeLoading] = useState(true);
 
     const mainContentRef = useRef(null);
+    const autoLogoutTimerRef = useRef(null);
 
     const handleConfirm = async () => {
         if (!confirmAction?.action) return;
@@ -3617,8 +3626,12 @@ export default function App() {
         const html2canvasScript = document.createElement('script'); html2canvasScript.src = "https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"; html2canvasScript.async = true; document.body.appendChild(html2canvasScript);
         const xlsxScript = document.createElement('script'); xlsxScript.src = "https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"; xlsxScript.async = true; document.body.appendChild(xlsxScript);
         return () => { 
-            document.body.removeChild(jspdfScript); 
-            document.body.removeChild(html2canvasScript); 
+            if (document.body.contains(jspdfScript)) {
+                document.body.removeChild(jspdfScript);
+            }
+            if (document.body.contains(html2canvasScript)) {
+                document.body.removeChild(html2canvasScript);
+            }
             if (document.body.contains(xlsxScript)) {
                 document.body.removeChild(xlsxScript);
             }
@@ -3627,38 +3640,55 @@ export default function App() {
 
     useEffect(() => {
         if (typeof __app_id !== 'undefined') { setAppId(__app_id); }
-        const authenticateUser = async () => { try { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } } catch (error) { console.error("Authentication failed:", error); } };
-        authenticateUser();
+        
         const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
             setUser(currentUser);
             if (currentUser) {
-                // Fetch passcode settings after user is authenticated
-                const effectiveAppId = typeof __app_id !== 'undefined' ? __app_id : 'default-app-id';
-                const passcodeRef = doc(db, `artifacts/${effectiveAppId}/users/${currentUser.uid}/settings/passcode`);
-                const unsubPasscode = onSnapshot(passcodeRef, (docSnap) => {
-                    if (docSnap.exists() && docSnap.data().hash) {
-                        setPasscodeSettings(docSnap.data());
-                        setIsLocked(true); // Stay locked if passcode exists
-                    } else {
-                        setPasscodeSettings(null);
-                        setIsLocked(false); // Unlock if no passcode is set
-                    }
-                    setPasscodeLoading(false);
-                }, (error) => {
-                    console.error("Error fetching passcode settings:", error);
-                    setIsLocked(false); // Unlock on error to prevent being locked out
-                    setPasscodeLoading(false);
-                });
+                setIsLocked(false); // User authenticated, no lock needed
+                setPasscodeLoading(false);
                 setLoading(false);
-                return () => unsubPasscode();
             } else {
+                // No user, show landing page
+                setShowLanding(true);
                 setLoading(false);
                 setPasscodeLoading(false);
-                setIsLocked(false); // No user, no lock
+                setIsLocked(false);
             }
         });
         return () => unsubscribe();
     }, [appId]);
+
+    // Auto-logout timer when on landing page (5 minutes of inactivity)
+    useEffect(() => {
+        // Clear any existing timer
+        if (autoLogoutTimerRef.current) {
+            clearTimeout(autoLogoutTimerRef.current);
+            autoLogoutTimerRef.current = null;
+        }
+
+        // Only set timer if user is logged in AND on landing page
+        if (user && showLanding) {
+            const AUTO_LOGOUT_DURATION = 5 * 60 * 1000; // 5 minutes in milliseconds
+
+            autoLogoutTimerRef.current = setTimeout(async () => {
+                console.log('Auto-logout: Session expired on landing page');
+                try {
+                    await signOut(auth);
+                    setShowLanding(true);
+                } catch (error) {
+                    console.error('Auto-logout error:', error);
+                }
+            }, AUTO_LOGOUT_DURATION);
+        }
+
+        // Cleanup timer on unmount or when dependencies change
+        return () => {
+            if (autoLogoutTimerRef.current) {
+                clearTimeout(autoLogoutTimerRef.current);
+                autoLogoutTimerRef.current = null;
+            }
+        };
+    }, [user, showLanding]);
     
     const handleUndo = async () => {
         if (lastAction?.undo) {
@@ -3666,13 +3696,23 @@ export default function App() {
         } else { setShowUndoMessage('Nothing to undo.'); setTimeout(() => setShowUndoMessage(false), 3000); }
     };
 
+    // Simplified theme toggle (dark <-> light) and apply dark class at the document root
     const toggleTheme = () => {
-        setTheme(prevTheme => {
-            if (prevTheme === 'dark') return 'light';
-            if (prevTheme === 'light') return 'grey';
-            return 'dark';
-        });
+        setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
     };
+
+    useEffect(() => {
+        // Tailwind's dark variant expects a parent with 'dark' class; ensure both <html> and <body> reflect theme
+        const root = document.documentElement;
+        const body = document.body;
+        if (theme === 'dark') {
+            root.classList.add('dark');
+            body.classList.add('dark');
+        } else {
+            root.classList.remove('dark');
+            body.classList.remove('dark');
+        }
+    }, [theme]);
 
     const handleDownloadReport = async () => {
         if (!window.jspdf || !window.html2canvas) { console.error("PDF libraries are not loaded yet."); return; }
@@ -3749,24 +3789,74 @@ export default function App() {
         );
     };
 
-    const handleUnlock = () => {
-        setIsLocked(false);
+    const handleAuthSuccess = async (authData) => {
+        const { email, password, displayName, mode } = authData;
+        try {
+            // Check if email is in the whitelist
+            const whitelistRef = doc(db, 'authorized_users', 'whitelist');
+            const whitelistDoc = await getDoc(whitelistRef);
+            
+            if (!whitelistDoc.exists()) {
+                alert('Authorization system not configured. Please contact administrator.');
+                return;
+            }
+
+            const authorizedEmails = whitelistDoc.data().emails || [];
+            if (!authorizedEmails.includes(email.toLowerCase())) {
+                alert('Access denied. Your email is not authorized. Please contact the administrator.');
+                return;
+            }
+
+            // Email is authorized, proceed with authentication
+            if (mode === 'signup') {
+                const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+                await updateProfile(userCredential.user, { displayName });
+                console.log('Account created successfully');
+            } else {
+                await signInWithEmailAndPassword(auth, email, password);
+                console.log('Logged in successfully');
+            }
+            setShowLanding(false);
+        } catch (error) {
+            console.error('Authentication error:', error);
+            let errorMessage = 'Authentication failed';
+            if (error.code === 'auth/email-already-in-use') {
+                errorMessage = 'Email already in use';
+            } else if (error.code === 'auth/invalid-email') {
+                errorMessage = 'Invalid email address';
+            } else if (error.code === 'auth/user-not-found') {
+                errorMessage = 'No account found with this email';
+            } else if (error.code === 'auth/wrong-password') {
+                errorMessage = 'Incorrect password';
+            } else if (error.code === 'auth/weak-password') {
+                errorMessage = 'Password is too weak';
+            }
+            alert(errorMessage);
+        }
+    };
+
+    const handleLogout = async () => {
+        try {
+            await signOut(auth);
+            setShowLanding(true);
+        } catch (error) {
+            console.error('Logout error:', error);
+        }
     };
 
     if (loading || passcodeLoading) { return <div className="flex justify-center items-center h-screen bg-gray-900 text-white">Loading Dashboard...</div>; }
 
-    if (isLocked && passcodeSettings) {
-        return <LockScreen onUnlock={handleUnlock} hint={passcodeSettings.hint} correctHash={passcodeSettings.hash} />;
+    // Show landing page if flag is set or no user
+    if (showLanding || !user) {
+        return <LandingPage 
+            onLoginSuccess={handleAuthSuccess} 
+            user={user}
+            onDashboardClick={() => setShowLanding(false)}
+        />;
     }
 
     return (
-        <div className={`${
-            theme === 'dark' 
-                ? 'dark bg-gray-900 text-white' 
-                : theme === 'light' 
-                ? 'bg-gray-100 text-gray-800' 
-                : 'dark bg-slate-700 text-slate-200'
-            } min-h-screen font-sans transition-colors duration-300`}>
+        <div className={`${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'} min-h-screen font-sans transition-colors duration-300`}>
             <style>{`
                 .force-light-text.force-light-text, 
                 .force-light-text .text-white,
@@ -3823,6 +3913,9 @@ export default function App() {
                 setCurrentPage={handlePageChange}
                 onSettingsClick={() => setShowSettingsModal(true)}
                 onSearchClick={() => setShowSearchModal(true)}
+                onReturnToLanding={() => setShowLanding(true)}
+                onLogout={handleLogout}
+                userDisplayName={user?.displayName || user?.email}
             />
             {renderPage()}
             {showSettingsModal && <NavigationSettingsModal userId={user?.uid} appId={appId} onClose={() => setShowSettingsModal(false)} />}
@@ -3834,7 +3927,7 @@ export default function App() {
 }
 
 // --- Navigation Components ---
-const Header = ({ userId, appId, onUndoClick, toggleTheme, theme, currentPage, setCurrentPage, onSettingsClick, onSearchClick }) => {
+const Header = ({ userId, appId, onUndoClick, toggleTheme, theme, currentPage, setCurrentPage, onSettingsClick, onSearchClick, onReturnToLanding, onLogout, userDisplayName }) => {
     const [navLinks, setNavLinks] = useState([]);
     const settingsRef = useMemo(() => (userId && appId !== 'default-app-id') ? doc(db, `artifacts/${appId}/users/${userId}/settings/app_settings`) : null, [userId, appId]);
 
@@ -3901,13 +3994,19 @@ const Header = ({ userId, appId, onUndoClick, toggleTheme, theme, currentPage, s
             </nav>
 
             <div className="flex items-center space-x-2 flex-1 justify-end min-w-[150px] order-2 sm:order-3">
+                {userDisplayName && (
+                    <div className="hidden md:flex items-center space-x-2 px-3 py-1 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-lg">
+                        <User size={16} className="text-cyan-400" />
+                        <span className="text-sm font-medium">{userDisplayName}</span>
+                    </div>
+                )}
                 <div className="border dark:border-gray-600 border-gray-300 rounded-xl px-2 py-1 flex items-center space-x-1">
+                    <button onClick={onReturnToLanding} title="Return to Home" className="p-1.5 rounded-full dark:hover:bg-gray-700 hover:bg-gray-200 transition-colors"><Home size={18} /></button>
                     <button onClick={onSearchClick} title="Universal Search" className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"><SearchCode size={18} /></button>
                     <button onClick={onSettingsClick} title="Settings" className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"><Settings size={18} /></button>
-                    <button onClick={() => setCurrentPage('passcode_settings')} title="Passcode Settings" className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"><KeyRound size={18} /></button>
-                    {/* Passcode Settings button remains removed */}
                     <button onClick={onUndoClick} title="Undo" className="p-1.5 rounded-full hover:bg-gray-700 transition-colors"><Undo size={18} /></button>
                     <button onClick={toggleTheme} title="Toggle Theme" className="p-1.5 rounded-full dark:hover:bg-gray-700 hover:bg-gray-200 transition-colors">{theme === 'light' ? <Moon size={18} /> : <Sun size={18} />}</button>
+                    <button onClick={onLogout} title="Logout" className="p-1.5 rounded-full hover:bg-red-500 hover:text-white transition-colors"><LogOut size={18} /></button>
                 </div>
             </div>
         </header>
@@ -5605,12 +5704,13 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     );
 };
 
-const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees }) => {
+const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId, appId, collectionPath }) => {
     const defaultState = {
         eNo: '', fullName: '', nationality: '', profession: '', qid: '', qidExpiry: '', 
         contact1: '', status: 'Active',
         idCopy: false, ppCopy: false, lcCopy: false, settle: false,
         gender: '',
+        idCopyUrl: '', ppCopyUrl: '', lcCopyUrl: '', settleDocUrl: '',
     };
     const [formData, setFormData] = useState(initialData ? 
         {
@@ -5620,11 +5720,97 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees }) => {
         : defaultState
     );
     const [errorMessage, setErrorMessage] = useState('');
+    const [docUploadStates, setDocUploadStates] = useState({});
+    const [docPreview, setDocPreview] = useState(null);
     
-    // ... existing handle change functions ...
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    };
+
+    const handleDocumentUpload = async (type, file) => {
+        if (!file) return;
+        if (file.type !== 'application/pdf') {
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'Only PDF files allowed.' } }));
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'File too large (max 5MB).' } }));
+            return;
+        }
+        
+        // For new employees (no ID yet), store file temporarily
+        if (!initialData?.id) {
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'Save employee first, then upload documents.' } }));
+            return;
+        }
+
+        setDocUploadStates(prev => ({ ...prev, [type]: { uploading: true, error: null } }));
+        try {
+            const storagePath = `employee_docs/${collectionPath}/${initialData.id}/${type}_${Date.now()}.pdf`;
+            const storageRef = ref(storage, storagePath);
+            await uploadBytes(storageRef, file);
+            const downloadURL = await getDownloadURL(storageRef);
+            
+            // Update Firestore immediately
+            const employeesRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+            await updateDoc(doc(employeesRef, initialData.id), {
+                [`${type}`]: true,
+                [`${type}Url`]: downloadURL,
+                [`${type}StoragePath`]: storagePath,
+                updatedAt: new Date()
+            });
+
+            // Update local form state
+            setFormData(prev => ({
+                ...prev,
+                [type]: true,
+                [`${type}Url`]: downloadURL,
+                [`${type}StoragePath`]: storagePath
+            }));
+            
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: null } }));
+        } catch (err) {
+            console.error('Upload failed:', err);
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'Upload failed.' } }));
+        }
+    };
+
+    const handleDocumentDelete = async (type, urlField, storagePathField) => {
+        if (!initialData?.id || !formData[storagePathField]) return;
+        
+        if (!window.confirm(`Are you sure you want to delete this document? This action cannot be undone.`)) {
+            return;
+        }
+
+        setDocUploadStates(prev => ({ ...prev, [type]: { uploading: true, error: null } }));
+        try {
+            // Delete from Storage
+            const storageRef = ref(storage, formData[storagePathField]);
+            await deleteObject(storageRef);
+            
+            // Update Firestore
+            const employeesRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+            await updateDoc(doc(employeesRef, initialData.id), {
+                [`${type}`]: false,
+                [`${urlField}`]: null,
+                [`${storagePathField}`]: null,
+                updatedAt: new Date()
+            });
+
+            // Update local form state
+            setFormData(prev => ({
+                ...prev,
+                [type]: false,
+                [urlField]: null,
+                [storagePathField]: null
+            }));
+            
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: null } }));
+        } catch (err) {
+            console.error('Delete failed:', err);
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'Delete failed.' } }));
+        }
     };
 
     const handleSave = () => {
@@ -5702,18 +5888,117 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees }) => {
                         </select>
                     </div>
                 </div>
-                <div className="flex items-center space-x-6 mt-6 pt-4 border-t dark:border-gray-700 border-gray-300">
-                    {/* ... checkboxes ... */}
-                     <label className="flex items-center space-x-2"><input type="checkbox" name="idCopy" checked={formData.idCopy} onChange={handleChange} className="h-4 w-4 dark:bg-gray-700 bg-gray-200 dark:border-gray-600 border-gray-400 rounded" /><span>ID</span></label>
-                    <label className="flex items-center space-x-2"><input type="checkbox" name="ppCopy" checked={formData.ppCopy} onChange={handleChange} className="h-4 w-4 dark:bg-gray-700 bg-gray-200 dark:border-gray-600 border-gray-400 rounded" /><span>PP</span></label>
-                    <label className="flex items-center space-x-2"><input type="checkbox" name="lcCopy" checked={formData.lcCopy} onChange={handleChange} className="h-4 w-4 dark:bg-gray-700 bg-gray-200 dark:border-gray-600 border-gray-400 rounded" /><span>LC</span></label>
-                    <label className="flex items-center space-x-2"><input type="checkbox" name="settle" checked={formData.settle} onChange={handleChange} className="h-4 w-4 dark:bg-gray-700 bg-gray-200 dark:border-gray-600 border-gray-400 rounded" /><span>Settle</span></label>
+                <div className="mt-6 pt-4 border-t dark:border-gray-700 border-gray-300">
+                    <h4 className="text-sm font-semibold mb-3 dark:text-gray-300 text-gray-700">Documents</h4>
+                    {!initialData?.id && (
+                        <div className="bg-yellow-500/20 text-yellow-300 p-2 rounded-md mb-3 text-xs">
+                            Save the employee first to upload documents
+                        </div>
+                    )}
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {[
+                            { type: 'idCopy', urlField: 'idCopyUrl', label: 'ID Copy', icon: <IdCard size={16} /> },
+                            { type: 'ppCopy', urlField: 'ppCopyUrl', label: 'Passport', icon: <BookUser size={16} /> },
+                            { type: 'lcCopy', urlField: 'lcCopyUrl', label: 'Labour Card', icon: <FileText size={16} /> },
+                            { type: 'settle', urlField: 'settleDocUrl', label: 'Settlement', icon: <HandCoins size={16} /> }
+                        ].map(({ type, urlField, label, icon }) => {
+                            const state = docUploadStates[type] || { uploading: false, error: null };
+                            const hasDoc = !!formData[urlField];
+                            const inputId = `modal_file_${type}`;
+                            return (
+                                <div key={type} className="dark:bg-gray-700 bg-gray-100 p-3 rounded-md border dark:border-gray-600 border-gray-300">
+                                    <div className="flex items-center justify-between mb-2">
+                                        <div className="flex items-center space-x-2 text-xs font-semibold dark:text-gray-300 text-gray-700">
+                                            {icon}
+                                            <span>{label}</span>
+                                        </div>
+                                        {hasDoc && (
+                                            <span className="text-[10px] px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">✓ Uploaded</span>
+                                        )}
+                                    </div>
+                                    <div className="flex items-center space-x-2">
+                                        {state.uploading ? (
+                                            <div className="w-full flex items-center justify-center py-2">
+                                                <Loader2 size={20} className="animate-spin text-cyan-400" />
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <label 
+                                                    htmlFor={inputId}
+                                                    className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-colors ${
+                                                        !initialData?.id 
+                                                            ? 'bg-gray-500 text-gray-300 cursor-not-allowed' 
+                                                            : hasDoc
+                                                                ? 'dark:bg-yellow-600 bg-yellow-500 hover:bg-yellow-600 dark:hover:bg-yellow-700 text-white'
+                                                                : 'dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 dark:hover:bg-cyan-700 text-white'
+                                                    }`}
+                                                    title={!initialData?.id ? 'Save employee first' : hasDoc ? 'Replace document' : 'Upload document'}
+                                                >
+                                                    <FileUp size={14} />
+                                                    <span>{hasDoc ? 'Replace' : 'Upload'}</span>
+                                                </label>
+                                                <input 
+                                                    id={inputId}
+                                                    type="file" 
+                                                    accept="application/pdf" 
+                                                    className="hidden" 
+                                                    onChange={(e) => {
+                                                        const file = e.target.files[0];
+                                                        if (file) handleDocumentUpload(type, file);
+                                                        e.target.value = '';
+                                                    }}
+                                                    disabled={!initialData?.id}
+                                                />
+                                                {hasDoc && (
+                                                    <>
+                                                        <button
+                                                            onClick={() => setDocPreview({ url: formData[urlField], type: label, employeeName: formData.fullName })}
+                                                            className="p-2 dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 dark:hover:bg-cyan-700 rounded-md transition-colors"
+                                                            title="View document"
+                                                        >
+                                                            <Eye size={14} />
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleDocumentDelete(type, urlField, `${type}StoragePath`)}
+                                                            className="p-2 dark:bg-red-600 bg-red-500 hover:bg-red-600 dark:hover:bg-red-700 rounded-md transition-colors"
+                                                            title="Delete document"
+                                                        >
+                                                            <Trash2 size={14} />
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </>
+                                        )}
+                                    </div>
+                                    {state.error && <div className="mt-1 text-[10px] text-red-400">{state.error}</div>}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
                 <div className="flex justify-end space-x-2 mt-6">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md">Cancel</button>
-                    <button onClick={handleSave} className="px-4 py-2 bg-cyan-500 rounded-md">Save Employee</button>
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-700">Cancel</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-cyan-500 rounded-md hover:bg-cyan-600">Save Employee</button>
                 </div>
             </div>
+            
+            {docPreview && (
+                <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[60] p-4" onClick={() => setDocPreview(null)}>
+                    <div className="dark:bg-gray-800 bg-white rounded-lg shadow-xl w-full max-w-4xl h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-3 border-b dark:border-gray-700 border-gray-300">
+                            <h4 className="font-semibold text-sm">{docPreview.type} - {docPreview.employeeName}</h4>
+                            <button onClick={() => setDocPreview(null)} className="p-1 hover:text-red-400" title="Close"><X size={16} /></button>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <iframe src={docPreview.url} title="Document Preview" className="w-full h-full rounded-b-lg" />
+                        </div>
+                        <div className="p-2 flex justify-end space-x-2 border-t dark:border-gray-700 border-gray-300">
+                            <a href={docPreview.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 text-xs rounded-md bg-cyan-500 hover:bg-cyan-600" title="Open in new tab">Open Full</a>
+                            <button onClick={() => setDocPreview(null)} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-700">Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -5943,7 +6228,9 @@ const PayCardModal = ({ isOpen, onClose, employees }) => {
         link.setAttribute("download", "pay_card_details.csv");
         document.body.appendChild(link);
         link.click();
-        document.body.removeChild(link);
+        if (document.body.contains(link)) {
+            document.body.removeChild(link);
+        }
     };
 
     return (
@@ -5997,7 +6284,7 @@ const PayCardModal = ({ isOpen, onClose, employees }) => {
     );
 };
 
-const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, headers, onHeaderSave, onPayCardCancelRequest, tickedEmployees, onToggleTick, onToggleAllTicks, isPinnedTable, onPin, onUnpin }) => {
+const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, headers, onHeaderSave, onPayCardCancelRequest, tickedEmployees, onToggleTick, onToggleAllTicks, isPinnedTable, onPin, onUnpin, docUploadStates, onUploadDocument, onOpenDocPreview }) => {
     const [copiedId, setCopiedId] = useState(null);
 
     const handleCopy = (text, id) => {
@@ -6059,6 +6346,47 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
             </div>
         </td>
     );
+
+    const DocumentCell = ({ employee, type, urlField, label, isTicked }) => {
+        const key = `${employee.id}_${type}`;
+        const state = docUploadStates[key] || { uploading: false, error: null };
+        const hasDoc = !!employee[urlField];
+        const baseClass = `p-3 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
+        const inputId = `file_input_${employee.id}_${type}`;
+        const onFileChange = (e) => {
+            const file = e.target.files[0];
+            if (file) onUploadDocument(employee.id, type, file);
+            e.target.value = '';
+        };
+        return (
+            <td className={baseClass}>
+                <div className="flex items-center justify-center space-x-1">
+                    {state.uploading ? (
+                        <Loader2 size={16} className="animate-spin text-cyan-400" title={`Uploading ${label}...`} />
+                    ) : hasDoc ? (
+                        <>
+                            <button
+                                onClick={() => onOpenDocPreview(employee[urlField], label, employee.fullName)}
+                                className="p-1 hover:text-cyan-400"
+                                title={`View ${label} document`}
+                            >
+                                <Eye size={16} />
+                            </button>
+                            <label className="p-1 hover:text-yellow-400 cursor-pointer" title={`Replace ${label} document`} htmlFor={inputId}>
+                                <FileUp size={16} />
+                            </label>
+                        </>
+                    ) : (
+                        <label className="p-1 hover:text-green-400 cursor-pointer" title={`Upload ${label} document`} htmlFor={inputId}>
+                            <FileUp size={16} />
+                        </label>
+                    )}
+                    <input id={inputId} type="file" accept="application/pdf" className="hidden" onChange={onFileChange} />
+                </div>
+                {state.error && <div className="mt-1 text-[10px] text-red-400">{state.error}</div>}
+            </td>
+        );
+    };
     
     const allAreTicked = employees.length > 0 && employees.every(e => tickedEmployees.has(e.id));
 
@@ -6167,10 +6495,11 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                     <td className={`${cellClassName} text-center`}><ExpiryStatusBadge date={e.passportExpiry} /></td>
                                     <td className={`${cellClassName} text-center`}><ExpiryStatusBadge date={e.labourContractExpiry} /></td>
                                     <td className={`${cellClassName} text-center`}><ExpiryStatusBadge date={e.payCardExpiry} /></td>
-                                    <CheckboxCell checked={e.idCopy} isTicked={isTicked} />
-                                    <CheckboxCell checked={e.ppCopy} isTicked={isTicked} />
-                                    <CheckboxCell checked={e.lcCopy} isTicked={isTicked} />
-                                    <CheckboxCell checked={e.settle} isTicked={isTicked} />
+                                    {/* Document cells (ID, Passport, Labour Contract, Settlement) */}
+                                    <DocumentCell employee={e} type="idCopy" urlField="idCopyUrl" label="ID" isTicked={isTicked} />
+                                    <DocumentCell employee={e} type="ppCopy" urlField="ppCopyUrl" label="PP" isTicked={isTicked} />
+                                    <DocumentCell employee={e} type="lcCopy" urlField="lcCopyUrl" label="LC" isTicked={isTicked} />
+                                    <DocumentCell employee={e} type="settle" urlField="settleDocUrl" label="Settle" isTicked={isTicked} />
                                     <td className={cellClassName}>
                                         <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-center space-x-1">
                                             {isPinnedTable ? (
@@ -6218,6 +6547,9 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
     const [professionFilter, setProfessionFilter] = useState('');
     const [showPayCardModal, setShowPayCardModal] = useState(false);
     const [headers, setHeaders] = useState({ eNo: 'E.NO', gender: 'Gender', fullName: 'Full Name', nationality: 'Nationality', profession: 'Profession', qid: 'QID', qidExpiry: 'QID Expiry', contact1: 'Contact', status: 'Employee Status', passport: 'Passport', labourContract: 'Contract', payCard: 'Pay Card'});
+    // Document preview modal state
+    const [docPreview, setDocPreview] = useState(null); // { url, type, employeeName }
+    const [docUploadStates, setDocUploadStates] = useState({}); // key `${empId}_${type}` => { uploading: bool, error: string|null }
     const [activeStatusView, setActiveStatusView] = useState('Active');
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
@@ -6390,6 +6722,59 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
             }
         });
     };
+
+    // Upload a single PDF document for an employee
+    const handleUploadEmployeeDocument = async (employeeId, type, file) => {
+        if (!file) {
+            console.log('No file provided');
+            return;
+        }
+        const key = `${employeeId}_${type}`;
+        console.log('Upload started:', { employeeId, type, fileName: file.name, fileType: file.type, fileSize: file.size });
+        
+        if (file.type !== 'application/pdf') {
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: 'Only PDF files allowed.' } }));
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) { // 5MB limit
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: 'File too large (max 5MB).' } }));
+            return;
+        }
+        setDocUploadStates(prev => ({ ...prev, [key]: { uploading: true, error: null } }));
+        try {
+            const storagePath = `employee_docs/${collectionPath}/${employeeId}/${type}_${Date.now()}.pdf`;
+            console.log('Uploading to path:', storagePath);
+            const storageRef = ref(storage, storagePath);
+            await uploadBytes(storageRef, file);
+            console.log('Upload complete, getting download URL...');
+            const downloadURL = await getDownloadURL(storageRef);
+            console.log('Download URL obtained:', downloadURL);
+            await updateDoc(doc(employeesRef, employeeId), {
+                [`${type}`]: true, // keep existing boolean semantics
+                [`${type}Url`]: downloadURL,
+                [`${type}StoragePath`]: storagePath,
+                updatedAt: new Date()
+            });
+            console.log('Firestore updated successfully');
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: null } }));
+        } catch (err) {
+            console.error('Upload failed:', err);
+            console.error('Error details:', { code: err.code, message: err.message, stack: err.stack });
+            let errorMsg = 'Upload failed';
+            if (err.code === 'storage/unauthorized') {
+                errorMsg = 'Permission denied. Check Storage rules.';
+            } else if (err.message) {
+                errorMsg = err.message.length > 50 ? err.message.substring(0, 50) + '...' : err.message;
+            }
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: errorMsg } }));
+        }
+    };
+
+    const handleOpenDocPreview = (url, type, employeeName) => {
+        setDocPreview({ url, type, employeeName });
+    };
+
+    const handleCloseDocPreview = () => setDocPreview(null);
 
     const handleSave = async (employeeData) => {
         if (editingEmployee) {
@@ -7022,6 +7407,9 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                             isPinnedTable={true}
                                             onPin={handlePinEmployee}
                                             onUnpin={handleUnpinEmployee}
+                                            docUploadStates={docUploadStates}
+                                            onUploadDocument={handleUploadEmployeeDocument}
+                                            onOpenDocPreview={handleOpenDocPreview}
                                         />
                                     </div>
                                 )}
@@ -7043,6 +7431,9 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                             isPinnedTable={false}
                                             onPin={handlePinEmployee}
                                             onUnpin={handleUnpinEmployee}
+                                            docUploadStates={docUploadStates}
+                                            onUploadDocument={handleUploadEmployeeDocument}
+                                            onOpenDocPreview={handleOpenDocPreview}
                                         />
                                     </div>
                                 )}
@@ -7064,8 +7455,26 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
 
             <PayCardModal isOpen={showPayCardModal} onClose={() => setShowPayCardModal(false)} employees={payCardEmployees} />
 
-            {showModal && <AddEditEmployeeModal onSave={handleSave} initialData={editingEmployee} employees={employees} onClose={() => setShowModal(false)} />}
+            {showModal && <AddEditEmployeeModal onSave={handleSave} initialData={editingEmployee} employees={employees} onClose={() => setShowModal(false)} userId={userId} appId={appId} collectionPath={collectionPath} />}
             {detailEmployee && <EmployeeDetailModal employee={detailEmployee} userId={userId} appId={appId} collectionPath={collectionPath} onClose={() => setDetailEmployee(null)} setConfirmAction={setConfirmAction} />}
+            
+            {docPreview && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={handleCloseDocPreview}>
+                    <div className="dark:bg-gray-800 bg-white rounded-lg shadow-xl w-full max-w-4xl h-[80vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-3 border-b dark:border-gray-700 border-gray-300">
+                            <h4 className="font-semibold text-sm">{docPreview.type} Document - {docPreview.employeeName}</h4>
+                            <button onClick={handleCloseDocPreview} className="p-1 hover:text-red-400" title="Close"><X size={16} /></button>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <iframe src={docPreview.url} title="Document Preview" className="w-full h-full rounded-b-lg" />
+                        </div>
+                        <div className="p-2 flex justify-end space-x-2 border-t dark:border-gray-700 border-gray-300">
+                            <a href={docPreview.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 text-xs rounded-md bg-cyan-500 hover:bg-cyan-600" title="Open in new tab">Open Full</a>
+                            <button onClick={handleCloseDocPreview} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-700">Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

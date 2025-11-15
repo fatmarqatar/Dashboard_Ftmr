@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script>
+      // Surface runtime errors and promise rejections directly in the page so they are visible during development.
+      window.addEventListener('error', (e) => {
+        try {
+          document.body.innerHTML = '<pre style="white-space:pre-wrap;color:red;">' +
+            (e.message || 'Error') + '\n' + (e.filename || '') + ':' + (e.lineno || '') + ':' + (e.colno || '') + '</pre>'
+        } catch (err) {
+          // ignore
+        }
+      })
+      window.addEventListener('unhandledrejection', (e) => {
+        try {
+          const reason = (e.reason && e.reason.message) || String(e.reason)
+          document.body.innerHTML = '<pre style="white-space:pre-wrap;color:red;">Unhandled promise rejection: ' + reason + '</pre>'
+        } catch (err) {
+          // ignore
+        }
+      })
+    </script>
+    <script>
+      // Set a non-default appId for local development so listeners run
+      window.__app_id = window.__app_id || 'local-dev';
+      console.log('Using appId:', window.__app_id);
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

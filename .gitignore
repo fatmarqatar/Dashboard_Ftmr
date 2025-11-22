@@ -4,3 +4,9 @@ dist/
 .env
 .vscode/
 .DS_Store
+.firebase/
+*.log
+*.tmp
+*.bak
+*~
+*.swp

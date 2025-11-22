@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import ErrorBoundary from './ErrorBoundary';
 import LandingPage from './LandingPage';
 // Consolidated lucide-react import
-import { Undo, Download, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User } from 'lucide-react';
+import { Undo, Download, Upload, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User } from 'lucide-react';
 // Consolidated Chart.js imports, register first
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, BarElement, Filler } from 'chart.js';
 import { Pie, Bar, Line, Doughnut } from 'react-chartjs-2'; // Import react-chartjs-2 components after registration
@@ -253,6 +253,276 @@ const LastUpdatedBadge = () => {
     );
 };
 
+// --- Document/Credential Modal with File Upload ---
+const DocCredModal = ({ isOpen, onSave, onClose, initialData, formFields, title, userId, appId, collectionPrefix, docId }) => {
+    const [formData, setFormData] = useState({});
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadError, setUploadError] = useState(null);
+    const [pendingFile, setPendingFile] = useState(null);
+    const fileInputRef = useRef(null);
+
+    useEffect(() => {
+        if (isOpen) {
+            const initialFormState = formFields.reduce((acc, field) => {
+                let value = initialData?.[field.name] ?? field.defaultValue ?? '';
+                
+                if (field.type === 'date') {
+                    if (initialData && initialData[field.name]) {
+                        value = formatDate(initialData[field.name]);
+                    } else if (!initialData && !field.noDefaultDate) {
+                        value = formatDate(new Date());
+                    } else {
+                        value = '';
+                    }
+                } else if (initialData) {
+                    value = initialData[field.name] ?? field.defaultValue ?? '';
+                } else {
+                    value = field.defaultValue ?? '';
+                }
+                acc[field.name] = value;
+                return acc;
+            }, {});
+            
+            if (initialData?.fileUrl) {
+                initialFormState.fileUrl = initialData.fileUrl;
+                initialFormState.storagePath = initialData.storagePath;
+            }
+            
+            setFormData(initialFormState);
+            setPendingFile(null);
+        }
+    }, [isOpen, initialData, formFields]);
+
+    const handleChange = (e) => {
+        const { name, value } = e.target;
+        setFormData(prev => ({ ...prev, [name]: value }));
+    };
+
+    const handleFileChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.type !== 'application/pdf') {
+            setUploadError('Only PDF files are allowed.');
+            return;
+        }
+        if (file.size > 5 * 1024 * 1024) {
+            setUploadError('File too large (max 5MB).');
+            return;
+        }
+
+        setUploadError(null);
+        
+        // For new documents, store file temporarily
+        if (!docId) {
+            setPendingFile(file);
+            setFormData(prev => ({ ...prev, fileName: file.name }));
+            return;
+        }
+
+        // For existing documents, upload immediately
+        setIsUploading(true);
+        try {
+            // Delete old file if exists
+            if (formData.storagePath) {
+                try {
+                    const oldRef = ref(storage, formData.storagePath);
+                    await deleteObject(oldRef);
+                } catch (err) {
+                    console.warn('Could not delete old file:', err);
+                }
+            }
+
+            const storagePath = `docs_creds/${collectionPrefix}/${docId}/${Date.now()}_${file.name}`;
+            const storageRef = ref(storage, storagePath);
+            await uploadBytes(storageRef, file);
+            const downloadURL = await getDownloadURL(storageRef);
+
+            setFormData(prev => ({
+                ...prev,
+                fileUrl: downloadURL,
+                storagePath: storagePath,
+                fileName: file.name
+            }));
+        } catch (err) {
+            console.error('Upload failed:', err);
+            setUploadError('Upload failed. Please try again.');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleRemoveFile = async () => {
+        if (!docId) {
+            // Remove pending file
+            setPendingFile(null);
+            setFormData(prev => ({ ...prev, fileName: null }));
+            return;
+        }
+
+        if (!formData.storagePath) return;
+
+        if (!window.confirm('Are you sure you want to delete this file?')) {
+            return;
+        }
+
+        setIsUploading(true);
+        try {
+            const storageRef = ref(storage, formData.storagePath);
+            await deleteObject(storageRef);
+            
+            setFormData(prev => ({
+                ...prev,
+                fileUrl: null,
+                storagePath: null,
+                fileName: null
+            }));
+        } catch (err) {
+            console.error('Delete failed:', err);
+            setUploadError('Could not delete file.');
+        } finally {
+            setIsUploading(false);
+        }
+    };
+
+    const handleSave = async () => {
+        const dataToSave = { ...formData };
+        
+        formFields.forEach(field => {
+            if (field.type === 'date') {
+                dataToSave[field.name] = parseDateForFirestore(dataToSave[field.name]);
+            }
+            if (field.type === 'number') {
+                dataToSave[field.name] = parseFloat(dataToSave[field.name] || 0);
+            }
+            if (field.transform === 'capitalize') {
+                dataToSave[field.name] = capitalizeWords(dataToSave[field.name] || '');
+            }
+        });
+
+        // Remove fileName from saved data (it's just for display)
+        delete dataToSave.fileName;
+
+        // If there's a pending file, upload it after saving
+        if (pendingFile) {
+            const uploadCallback = async (newDocId) => {
+                try {
+                    const storagePath = `docs_creds/${collectionPrefix}/${newDocId}/${Date.now()}_${pendingFile.name}`;
+                    const storageRef = ref(storage, storagePath);
+                    await uploadBytes(storageRef, pendingFile);
+                    const downloadURL = await getDownloadURL(storageRef);
+                    
+                    // Update the document with file info
+                    const docRef = doc(db, `artifacts/${appId}/users/${userId}/${collectionPrefix}Documents`, newDocId);
+                    await updateDoc(docRef, {
+                        fileUrl: downloadURL,
+                        storagePath: storagePath
+                    });
+                } catch (err) {
+                    console.error('Failed to upload file:', err);
+                }
+            };
+            
+            onSave(dataToSave, uploadCallback);
+        } else {
+            onSave(dataToSave);
+        }
+        
+        onClose();
+    };
+    
+    if (!isOpen) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[100] p-4">
+            <div className="dark:bg-gray-800 bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                <h3 className="text-xl font-bold mb-6">{initialData ? 'Edit' : 'Add'} {title}</h3>
+                <div className="overflow-y-auto">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
+                        {formFields.map(field => (
+                            <div key={field.name} className={field.colSpan ? `md:col-span-${field.colSpan}`: ''}>
+                                <label className="text-xs dark:text-gray-400 text-gray-500">{field.label}</label>
+                                {field.type === 'textarea' ? (
+                                    <textarea name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md h-24 border dark:border-gray-600 border-gray-300" />
+                                ) : field.type === 'select' ? (
+                                    <select name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300">
+                                        {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                    </select>
+                                ) : field.type === 'date' ? (
+                                    <DateInput 
+                                        value={formData[field.name] || ''} 
+                                        onChange={val => setFormData(prev => ({ ...prev, [field.name]: val }))} 
+                                    />
+                                ) : (
+                                    <input type={field.type || 'text'} name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" style={{textTransform: field.transform === 'capitalize' ? 'capitalize' : 'none'}}/>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* File Upload Section */}
+                    <div className="border-t dark:border-gray-700 border-gray-300 pt-4 mt-4">
+                        <h4 className="text-sm font-semibold mb-3 dark:text-cyan-400 text-cyan-600 flex items-center space-x-2">
+                            <FileUp size={14} />
+                            <span>Attach PDF Document</span>
+                        </h4>
+                        <div className="flex items-center space-x-3">
+                            <input 
+                                type="file" 
+                                ref={fileInputRef} 
+                                onChange={handleFileChange} 
+                                className="hidden" 
+                                accept="application/pdf"
+                            />
+                            <button 
+                                onClick={() => fileInputRef.current?.click()} 
+                                disabled={isUploading}
+                                className="px-4 py-2 bg-cyan-500 hover:bg-cyan-600 rounded-md text-sm font-medium disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors flex items-center space-x-2"
+                            >
+                                {isUploading ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+                                <span>{isUploading ? 'Uploading...' : (formData.fileUrl || pendingFile) ? 'Replace File' : 'Select PDF'}</span>
+                            </button>
+                            
+                            {(formData.fileUrl || pendingFile) && (
+                                <>
+                                    <span className="text-sm dark:text-gray-400 text-gray-600 flex items-center space-x-2">
+                                        <CheckCircle size={14} className="text-green-400" />
+                                        <span>{pendingFile ? pendingFile.name : 'File attached'}</span>
+                                    </span>
+                                    {formData.fileUrl && (
+                                        <a 
+                                            href={formData.fileUrl} 
+                                            target="_blank" 
+                                            rel="noopener noreferrer"
+                                            className="p-2 hover:text-cyan-400 transition-colors"
+                                            title="View file"
+                                        >
+                                            <Eye size={16} />
+                                        </a>
+                                    )}
+                                    <button 
+                                        onClick={handleRemoveFile} 
+                                        disabled={isUploading}
+                                        className="p-2 hover:text-red-400 transition-colors disabled:opacity-50"
+                                        title="Remove file"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </>
+                            )}
+                        </div>
+                        {uploadError && <p className="text-red-400 text-xs mt-2">{uploadError}</p>}
+                        {!docId && pendingFile && <p className="text-xs mt-2 dark:text-cyan-400 text-cyan-600">File will be uploaded after saving</p>}
+                    </div>
+                </div>
+                <div className="flex justify-end space-x-2 mt-6 pt-4 border-t dark:border-gray-700 border-gray-300">
+                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-700">Cancel</button>
+                    <button onClick={handleSave} className="px-4 py-2 bg-cyan-500 rounded-md hover:bg-cyan-600">Save</button>
+                </div>
+            </div>
+        </div>
+    );
+};
 
 // --- Generic Add/Edit Modal for Sub-Pages ---
 const GenericAddEditModal = ({ isOpen, onSave, onClose, initialData, formFields, title, employeeList = [] }) => {
@@ -266,10 +536,10 @@ const GenericAddEditModal = ({ isOpen, onSave, onClose, initialData, formFields,
                 if (field.type === 'date') {
                     if (initialData && initialData[field.name]) { // Editing existing entry
                         value = formatDate(initialData[field.name]);
-                    } else if (!initialData) { // New entry
+                    } else if (!initialData && !field.noDefaultDate) { // New entry with auto-date
                         value = formatDate(new Date()); // Auto-fill current date
                     } else {
-                        value = ''; // Editing, but no date was set
+                        value = ''; // Editing, but no date was set, or noDefaultDate is true
                     }
                 } else if (field.type !== 'date' && initialData) { // Handle non-date fields for editing
                     value = initialData[field.name] ?? field.defaultValue ?? '';
@@ -429,6 +699,7 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
     const [editingItem, setEditingItem] = useState(null);
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [selectedItems, setSelectedItems] = useState(new Set());
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
     const itemsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
@@ -561,6 +832,52 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
         setEditingItem(item);
         setShowModal(true);
     };
+
+    const handleToggleSelect = useCallback((itemId) => {
+        setSelectedItems(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(itemId)) {
+                newSet.delete(itemId);
+            } else {
+                newSet.add(itemId);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const handleToggleSelectAll = () => {
+        const allIds = filteredItems.map(item => item.id);
+        const allAreSelected = allIds.length > 0 && allIds.every(id => selectedItems.has(id));
+
+        setSelectedItems(prev => {
+            const newSet = new Set(prev);
+            if (allAreSelected) {
+                allIds.forEach(id => newSet.delete(id));
+            } else {
+                allIds.forEach(id => newSet.add(id));
+            }
+            return newSet;
+        });
+    };
+
+    const handleDeleteSelected = () => {
+        if (selectedItems.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${selectedItems.size} selected item(s)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                selectedItems.forEach(itemId => {
+                    batch.delete(doc(itemsRef, itemId));
+                });
+                await batch.commit();
+                setSelectedItems(new Set());
+            }
+        });
+    };
     
     return (
         <div className="p-4 sm:p-8">
@@ -578,19 +895,12 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
                             />
                             <Search size={18} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                         </div>
-                        <button onClick={handleExportJson} disabled={isExporting} title="Export to JSON" className="p-2.5 bg-green-500 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">
-                            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                        </button>
-                        <button onClick={triggerImport} disabled={isImporting} title="Import from JSON" className="p-2.5 bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50">
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                        </button>
-                        <input
-                            type="file"
-                            ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
-                            className="hidden"
-                            accept=".json,application/json"
-                        />
+                        {selectedItems.size > 0 && (
+                            <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                <Trash2 size={16}/>
+                                <span>Delete ({selectedItems.size})</span>
+                            </button>
+                        )}
                         <button onClick={() => { setEditingItem(null); setShowModal(true); }} className="flex items-center space-x-1 px-3 py-1.5 bg-cyan-500 rounded-md hover:bg-cyan-600 transition-colors text-sm" title={`Add New ${itemTitle}`}>
                             <PlusCircle size={16}/>
                             <span>Add {itemTitle}</span>
@@ -601,31 +911,51 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
                     <table className="w-full text-base font-medium border-separate" style={{borderSpacing: '0 4px'}}>
                         <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                             <tr>
-                                <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
-                                {columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
-                                <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
+                                <th className="p-0 font-semibold w-12">
+                                    <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
+                                        <input
+                                            type="checkbox"
+                                            onChange={handleToggleSelectAll}
+                                            checked={filteredItems.length > 0 && filteredItems.every(item => selectedItems.has(item.id))}
+                                            className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                            title={filteredItems.length > 0 && filteredItems.every(item => selectedItems.has(item.id)) ? "Deselect All" : "Select All"}
+                                        />
+                                    </div>
+                                </th>
                                 <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
                                 {columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
                                 <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
                             </tr>
                         </thead>
                         <tbody>
-                            {filteredItems.map((item, index) => (
-                                <tr key={item.id} className="group/row">
-                                    <td className="p-2 dark:bg-gray-800/50 bg-white rounded-l-md">{index + 1}</td>
-                                    {columns.map(col => (
-                                        <td key={col.accessor} className="p-2 dark:bg-gray-800/50 bg-white">
-                                            {col.render ? col.render(item) : item[col.accessor]}
+                            {filteredItems.map((item, index) => {
+                                const isSelected = selectedItems.has(item.id);
+                                const cellClassName = `p-2 ${isSelected ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-white'}`;
+                                return (
+                                    <tr key={item.id} className="group/row">
+                                        <td className={`${cellClassName} rounded-l-md text-center`}>
+                                            <input
+                                                type="checkbox"
+                                                checked={isSelected}
+                                                onChange={() => handleToggleSelect(item.id)}
+                                                className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                            />
                                         </td>
-                                    ))}
-                                    <td className="p-2 dark:bg-gray-800/50 bg-white rounded-r-md">
-                                        <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
-                                            <button onClick={() => handleEdit(item)} className="p-1.5 hover:text-cyan-400"><Edit size={16}/></button>
-                                            <button onClick={() => onDeleteRequest(item)} className="p-1.5 hover:text-red-400"><Trash2 size={16}/></button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                                        <td className={cellClassName}>{index + 1}</td>
+                                        {columns.map(col => (
+                                            <td key={col.accessor} className={cellClassName}>
+                                                {col.render ? col.render(item) : item[col.accessor]}
+                                            </td>
+                                        ))}
+                                        <td className={`${cellClassName} rounded-r-md`}>
+                                            <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
+                                                <button onClick={() => handleEdit(item)} className="p-1.5 hover:text-cyan-400"><Edit size={16}/></button>
+                                                <button onClick={() => onDeleteRequest(item)} className="p-1.5 hover:text-red-400"><Trash2 size={16}/></button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                      {filteredItems.length === 0 && <div className="text-center py-8 text-gray-500">No entries yet.</div>}
@@ -692,6 +1022,25 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
 
     const handleClearTicks = () => {
         setTickedVehicles(new Set());
+    };
+
+    const handleDeleteSelected = () => {
+        if (tickedVehicles.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedVehicles.size} selected vehicle(s)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                tickedVehicles.forEach(vehicleId => {
+                    batch.delete(doc(vehiclesRef, vehicleId));
+                });
+                await batch.commit();
+                setTickedVehicles(new Set());
+            }
+        });
     };
 
     const handleExportJson = async () => {
@@ -853,9 +1202,6 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                             {['S.No', 'Vehicle No', 'Make', 'Model', 'Owner', 'Expiry', 'Status', 'Contact 1', 'Note', 'Actions'].map(h => (
                                 <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>
                             ))}
-                            {['S.No', 'Vehicle No', 'Make', 'Model', 'Owner', 'Expiry', 'Status', 'Contact 1', 'Note', 'Actions'].map(h => (
-                                <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>
-                            ))}
                         </tr>
                     </thead>
                     <tbody>
@@ -930,24 +1276,17 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                             <Search size={18} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                         </div>
                         {tickedVehicles.size > 0 && (
-                            <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
-                                <X size={16}/>
-                                <span>Clear ({tickedVehicles.size})</span>
-                            </button>
+                            <>
+                                <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                    <Trash2 size={16}/>
+                                    <span>Delete ({tickedVehicles.size})</span>
+                                </button>
+                                <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                    <X size={16}/>
+                                    <span>Clear ({tickedVehicles.size})</span>
+                                </button>
+                            </>
                         )}
-                         <button onClick={handleExportJson} disabled={isExporting} title="Export to JSON" className="p-2.5 bg-green-500 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">
-                            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                        </button>
-                        <button onClick={triggerImport} disabled={isImporting} title="Import from JSON" className="p-2.5 bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50">
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                        </button>
-                        <input
-                            type="file"
-                            ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
-                            className="hidden"
-                            accept=".json,application/json"
-                        />
                          <button onClick={() => { setEditingVehicle(null); setShowModal(true); }} className="flex items-center space-x-1 px-3 py-1.5 bg-cyan-500 rounded-md hover:bg-cyan-600 transition-colors text-sm" title="Add Vehicle">
                             <PlusCircle size={16}/>
                             <span>Add Vehicle</span>
@@ -1066,6 +1405,9 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
     const [activeView, setActiveView] = useState('documents');
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
+    const [selectedDocuments, setSelectedDocuments] = useState(new Set());
+    const [selectedCredentials, setSelectedCredentials] = useState(new Set());
+    const [selectedReminders, setSelectedReminders] = useState(new Set());
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -1230,11 +1572,14 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
         importFileInputRef.current?.click();
     };
 
-    const handleDocSave = async (data) => {
+    const handleDocSave = async (data, uploadCallback) => {
         if (editingDoc) {
             await updateDoc(doc(documentsRef, editingDoc.id), data);
         } else {
-            await addDoc(documentsRef, data);
+            const docRef = await addDoc(documentsRef, data);
+            if (uploadCallback) {
+                await uploadCallback(docRef.id);
+            }
         }
         setShowDocModal(false);
         setEditingDoc(null);
@@ -1301,11 +1646,14 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
         );
     }, [reminders, searchTerm]);
 
-    const handleCredSave = async (data) => {
+    const handleCredSave = async (data, uploadCallback) => {
         if (editingCred) {
             await updateDoc(doc(credentialsRef, editingCred.id), data);
         } else {
-            await addDoc(credentialsRef, data);
+            const docRef = await addDoc(credentialsRef, data);
+            if (uploadCallback) {
+                await uploadCallback(docRef.id);
+            }
         }
         setShowCredModal(false);
         setEditingCred(null);
@@ -1322,7 +1670,20 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
 
      const credentialsConfig = {
         itemTitle: 'Credential',
-        columns: [ { header: 'Description', accessor: 'description' }, { header: 'Sub-Description', accessor: 'subDescription' }, { header: 'Email', accessor: 'email' }, { header: 'Username', accessor: 'username' }, { header: 'Expiry', accessor: 'expiry', render: (item) => formatDate(item.expiry) }, { header: 'Status', accessor: 'status', render: (item) => <DocumentStatusBadge date={item.expiry} /> } ],
+        columns: [ 
+            { header: 'Description', accessor: 'description' }, 
+            { header: 'Sub-Description', accessor: 'subDescription' }, 
+            { header: 'Email', accessor: 'email' }, 
+            { header: 'Username', accessor: 'username' }, 
+            { header: 'Expiry', accessor: 'expiry', render: (item) => formatDate(item.expiry) }, 
+            { header: 'Status', accessor: 'status', render: (item) => <DocumentStatusBadge date={item.expiry} /> },
+            { header: 'File', accessor: 'fileUrl', render: (item) => item.fileUrl ? (
+                <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center space-x-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors" title="View file">
+                    <FileText size={12} />
+                    <span>PDF</span>
+                </a>
+            ) : <span className="text-xs dark:text-gray-500 text-gray-400">-</span> }
+        ],
         formFields: [ { name: 'description', label: 'Description', transform: 'capitalize' }, { name: 'subDescription', label: 'Sub-Description', transform: 'capitalize' }, { name: 'email', label: 'Email' }, { name: 'number', label: 'Number' }, { name: 'contact', label: 'Contact' }, { name: 'username', label: 'Username' }, { name: 'passcode', label: 'Passcode' }, { name: 'pin', label: 'PIN' }, { name: 'expiry', label: 'Expiry', type: 'date' }, { name: 'others', label: 'Others', type: 'textarea' }, ]
     };
 
@@ -1353,6 +1714,140 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
 
     const reminderFormFields = [ { name: 'title', label: 'Reminder Title', transform: 'capitalize' }, { name: 'dueDate', label: 'Due Date', type: 'date' }, { name: 'reminderDate', label: 'Reminder Date', type: 'date' }, { name: 'notes', label: 'Notes', type: 'textarea', colSpan: 3 }, ];
 
+    // Select/Delete functions for Documents
+    const handleToggleSelectDocument = useCallback((docId) => {
+        setSelectedDocuments(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(docId)) {
+                newSet.delete(docId);
+            } else {
+                newSet.add(docId);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const handleToggleSelectAllDocuments = () => {
+        const allIds = filteredDocuments.map(doc => doc.id);
+        const allAreSelected = allIds.length > 0 && allIds.every(id => selectedDocuments.has(id));
+        setSelectedDocuments(prev => {
+            const newSet = new Set(prev);
+            if (allAreSelected) {
+                allIds.forEach(id => newSet.delete(id));
+            } else {
+                allIds.forEach(id => newSet.add(id));
+            }
+            return newSet;
+        });
+    };
+
+    const handleDeleteSelectedDocuments = () => {
+        if (selectedDocuments.size === 0) return;
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${selectedDocuments.size} selected document(s)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                selectedDocuments.forEach(docId => {
+                    batch.delete(doc(documentsRef, docId));
+                });
+                await batch.commit();
+                setSelectedDocuments(new Set());
+            }
+        });
+    };
+
+    // Select/Delete functions for Credentials
+    const handleToggleSelectCredential = useCallback((credId) => {
+        setSelectedCredentials(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(credId)) {
+                newSet.delete(credId);
+            } else {
+                newSet.add(credId);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const handleToggleSelectAllCredentials = () => {
+        const allIds = filteredCredentials.map(cred => cred.id);
+        const allAreSelected = allIds.length > 0 && allIds.every(id => selectedCredentials.has(id));
+        setSelectedCredentials(prev => {
+            const newSet = new Set(prev);
+            if (allAreSelected) {
+                allIds.forEach(id => newSet.delete(id));
+            } else {
+                allIds.forEach(id => newSet.add(id));
+            }
+            return newSet;
+        });
+    };
+
+    const handleDeleteSelectedCredentials = () => {
+        if (selectedCredentials.size === 0) return;
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${selectedCredentials.size} selected credential(s)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                selectedCredentials.forEach(credId => {
+                    batch.delete(doc(credentialsRef, credId));
+                });
+                await batch.commit();
+                setSelectedCredentials(new Set());
+            }
+        });
+    };
+
+    // Select/Delete functions for Reminders
+    const handleToggleSelectReminder = useCallback((reminderId) => {
+        setSelectedReminders(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(reminderId)) {
+                newSet.delete(reminderId);
+            } else {
+                newSet.add(reminderId);
+            }
+            return newSet;
+        });
+    }, []);
+
+    const handleToggleSelectAllReminders = () => {
+        const allIds = filteredReminders.map(rem => rem.id);
+        const allAreSelected = allIds.length > 0 && allIds.every(id => selectedReminders.has(id));
+        setSelectedReminders(prev => {
+            const newSet = new Set(prev);
+            if (allAreSelected) {
+                allIds.forEach(id => newSet.delete(id));
+            } else {
+                allIds.forEach(id => newSet.add(id));
+            }
+            return newSet;
+        });
+    };
+
+    const handleDeleteSelectedReminders = () => {
+        if (selectedReminders.size === 0) return;
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${selectedReminders.size} selected reminder(s)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                selectedReminders.forEach(reminderId => {
+                    batch.delete(doc(remindersRef, reminderId));
+                });
+                await batch.commit();
+                setSelectedReminders(new Set());
+            }
+        });
+    };
 
     return (
         <div className="p-4 sm:p-8">
@@ -1389,19 +1884,24 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                             />
                             <Search size={18} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                         </div>
-                         <button onClick={handleExportJson} disabled={isExporting} title="Export to JSON" className="p-2.5 bg-green-500 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">
-                            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                        </button>
-                        <button onClick={triggerImport} disabled={isImporting} title="Import from JSON" className="p-2.5 bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50">
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                        </button>
-                        <input
-                            type="file"
-                            ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
-                            className="hidden"
-                            accept=".json,application/json"
-                        />
+                        {activeView === 'documents' && selectedDocuments.size > 0 && (
+                            <button onClick={handleDeleteSelectedDocuments} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                <Trash2 size={16}/>
+                                <span>Delete ({selectedDocuments.size})</span>
+                            </button>
+                        )}
+                        {activeView === 'credentials' && selectedCredentials.size > 0 && (
+                            <button onClick={handleDeleteSelectedCredentials} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                <Trash2 size={16}/>
+                                <span>Delete ({selectedCredentials.size})</span>
+                            </button>
+                        )}
+                        {activeView === 'reminders' && selectedReminders.size > 0 && (
+                            <button onClick={handleDeleteSelectedReminders} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                <Trash2 size={16}/>
+                                <span>Delete ({selectedReminders.size})</span>
+                            </button>
+                        )}
                         {activeView === 'documents' && (
                              <button onClick={() => { setEditingDoc(null); setShowDocModal(true); }} className="flex items-center space-x-1 px-3 py-1.5 bg-cyan-500 rounded-md hover:bg-cyan-600 transition-colors text-sm" title="Add Document">
                                 <PlusCircle size={16}/>
@@ -1429,28 +1929,67 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                             <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
                                 <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                                     <tr>
-                                        {['S.No', 'Document Name', 'Type', 'Number', 'Registration Date', 'Expiry Date', 'Status', 'Notes', 'Actions'].map(h => <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>)}
+                                        <th className="p-0 font-semibold w-12">
+                                            <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    onChange={handleToggleSelectAllDocuments}
+                                                    checked={filteredDocuments.length > 0 && filteredDocuments.every(doc => selectedDocuments.has(doc.id))}
+                                                    className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                                    title={filteredDocuments.length > 0 && filteredDocuments.every(doc => selectedDocuments.has(doc.id)) ? "Deselect All" : "Select All"}
+                                                />
+                                            </div>
+                                        </th>
+                                        {['S.No', 'Document Name', 'Type', 'Number', 'Registration Date', 'Expiry Date', 'Status', 'File', 'Notes', 'Actions'].map(h => <th key={h} className={`p-0 font-semibold ${h === 'File' ? 'text-center' : 'text-left'} ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>)}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredDocuments.map((doc, i) => (
-                                        <tr key={doc.id} className="group/row">
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white rounded-l-md">{i+1}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white font-semibold">{doc.documentName}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{doc.type}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{doc.number}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{formatDate(doc.registrationDate)}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white">{formatDate(doc.expiryDate)}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white"><DocumentStatusBadge date={doc.expiryDate} /></td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white truncate max-w-xs">{doc.notes}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white rounded-r-md">
-                                                <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
-                                                    <button onClick={() => { setEditingDoc(doc); setShowDocModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button>
-                                                    <button onClick={() => onDocDeleteRequest(doc)} className="p-1.5 hover:text-red-400"><Trash2 size={14}/></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {filteredDocuments.map((docItem, i) => {
+                                        const isSelected = selectedDocuments.has(docItem.id);
+                                        const cellClassName = `p-2 ${isSelected ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-white'}`;
+                                        return (
+                                            <tr key={docItem.id} className="group/row">
+                                                <td className={`${cellClassName} rounded-l-md text-center`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleSelectDocument(docItem.id)}
+                                                        className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                                    />
+                                                </td>
+                                                <td className={cellClassName}>{i+1}</td>
+                                                <td className={`${cellClassName} font-semibold`}>{docItem.documentName}</td>
+                                                <td className={cellClassName}>{docItem.type}</td>
+                                                <td className={cellClassName}>{docItem.number}</td>
+                                                <td className={cellClassName}>{formatDate(docItem.registrationDate)}</td>
+                                                <td className={cellClassName}>{formatDate(docItem.expiryDate)}</td>
+                                                <td className={cellClassName}><DocumentStatusBadge date={docItem.expiryDate} /></td>
+                                                <td className={`${cellClassName} text-center`}>
+                                                    {docItem.fileUrl ? (
+                                                        <a 
+                                                            href={docItem.fileUrl} 
+                                                            target="_blank" 
+                                                            rel="noopener noreferrer"
+                                                            className="inline-flex items-center space-x-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors"
+                                                            title="View file"
+                                                        >
+                                                            <FileText size={12} />
+                                                            <span>PDF</span>
+                                                        </a>
+                                                    ) : (
+                                                        <span className="text-xs dark:text-gray-500 text-gray-400">-</span>
+                                                    )}
+                                                </td>
+                                                <td className={`${cellClassName} truncate max-w-xs`}>{docItem.notes}</td>
+                                                <td className={`${cellClassName} rounded-r-md`}>
+                                                    <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
+                                                        <button onClick={() => { setEditingDoc(docItem); setShowDocModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button>
+                                                        <button onClick={() => onDocDeleteRequest(docItem)} className="p-1.5 hover:text-red-400"><Trash2 size={14}/></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                             {filteredDocuments.length === 0 && <div className="text-center py-8 text-gray-500">No documents found.</div>}
@@ -1461,28 +2000,51 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                             <table className="w-full text-base font-medium border-separate" style={{borderSpacing: '0 4px'}}>
                                 <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                                     <tr>
+                                        <th className="p-0 font-semibold w-12">
+                                            <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    onChange={handleToggleSelectAllCredentials}
+                                                    checked={filteredCredentials.length > 0 && filteredCredentials.every(cred => selectedCredentials.has(cred.id))}
+                                                    className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                                    title={filteredCredentials.length > 0 && filteredCredentials.every(cred => selectedCredentials.has(cred.id)) ? "Deselect All" : "Select All"}
+                                                />
+                                            </div>
+                                        </th>
                                         <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
                                         {credentialsConfig.columns.map(col => <th key={col.header} className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{col.header}</div></th>)}
                                         <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredCredentials.map((item, index) => (
-                                        <tr key={item.id} className="group/row">
-                                            <td className="p-2 dark:bg-gray-800/50 bg-white rounded-l-md">{index + 1}</td>
-                                            {credentialsConfig.columns.map(col => (
-                                                <td key={col.accessor} className="p-2 dark:bg-gray-800/50 bg-white">
-                                                    {col.render ? col.render(item) : item[col.accessor]}
+                                    {filteredCredentials.map((item, index) => {
+                                        const isSelected = selectedCredentials.has(item.id);
+                                        const cellClassName = `p-2 ${isSelected ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-white'}`;
+                                        return (
+                                            <tr key={item.id} className="group/row">
+                                                <td className={`${cellClassName} rounded-l-md text-center`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleSelectCredential(item.id)}
+                                                        className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                                    />
                                                 </td>
-                                            ))}
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-r-md">
-                                                <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
-                                                    <button onClick={() => { setEditingCred(item); setShowCredModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={16}/></button>
-                                                    <button onClick={() => onCredDeleteRequest(item)} className="p-1.5 hover:text-red-400"><Trash2 size={16}/></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                                <td className={cellClassName}>{index + 1}</td>
+                                                {credentialsConfig.columns.map(col => (
+                                                    <td key={col.accessor} className={cellClassName}>
+                                                        {col.render ? col.render(item) : item[col.accessor]}
+                                                    </td>
+                                                ))}
+                                                <td className={`${cellClassName} rounded-r-md`}>
+                                                    <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
+                                                        <button onClick={() => { setEditingCred(item); setShowCredModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={16}/></button>
+                                                        <button onClick={() => onCredDeleteRequest(item)} className="p-1.5 hover:text-red-400"><Trash2 size={16}/></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                             {filteredCredentials.length === 0 && <div className="text-center py-8 text-gray-500">No credentials found.</div>}
@@ -1493,35 +2055,58 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                             <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
                                 <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                                     <tr>
+                                        <th className="p-0 font-semibold w-12">
+                                            <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
+                                                <input
+                                                    type="checkbox"
+                                                    onChange={handleToggleSelectAllReminders}
+                                                    checked={filteredReminders.length > 0 && filteredReminders.every(rem => selectedReminders.has(rem.id))}
+                                                    className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                                    title={filteredReminders.length > 0 && filteredReminders.every(rem => selectedReminders.has(rem.id)) ? "Deselect All" : "Select All"}
+                                                />
+                                            </div>
+                                        </th>
                                         {['S.No', 'Title', 'Due Date', 'Reminder Date', 'Status', 'Notes', 'Actions'].map(h => <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>)}
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredReminders.map((reminder, i) => (
-                                        <tr key={reminder.id} className={`group/row ${reminder.status === 'Completed' ? 'opacity-50' : ''}`}>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-l-md">{i+1}</td>
-                                            <td className={`p-2 dark:bg-gray-800/50 bg-gray-50 font-semibold ${reminder.status === 'Completed' ? 'line-through' : ''}`}>{reminder.title}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">
-                                                <div className="flex items-center space-x-2">
-                                                    <span>{formatDate(reminder.dueDate)}</span>
-                                                    <DocumentStatusBadge date={reminder.dueDate} />
-                                                </div>
-                                            </td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">{formatDate(reminder.reminderDate)}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50">
-                                                <button onClick={() => handleToggleReminderStatus(reminder)} className={`px-2 py-1 text-xs font-semibold rounded-full ${reminder.status === 'Completed' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
-                                                    {reminder.status}
-                                                </button>
-                                            </td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 truncate max-w-xs">{reminder.notes}</td>
-                                            <td className="p-2 dark:bg-gray-800/50 bg-gray-50 rounded-r-md">
-                                                <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
-                                                    <button onClick={() => { setEditingReminder(reminder); setShowReminderModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button>
-                                                    <button onClick={() => onReminderDeleteRequest(reminder)} className="p-1.5 hover:text-red-400"><Trash2 size={14}/></button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))}
+                                    {filteredReminders.map((reminder, i) => {
+                                        const isSelected = selectedReminders.has(reminder.id);
+                                        const cellClassName = `p-2 ${isSelected ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-gray-50'}`;
+                                        return (
+                                            <tr key={reminder.id} className={`group/row ${reminder.status === 'Completed' ? 'opacity-50' : ''}`}>
+                                                <td className={`${cellClassName} rounded-l-md text-center`}>
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isSelected}
+                                                        onChange={() => handleToggleSelectReminder(reminder.id)}
+                                                        className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                                    />
+                                                </td>
+                                                <td className={cellClassName}>{i+1}</td>
+                                                <td className={`${cellClassName} font-semibold ${reminder.status === 'Completed' ? 'line-through' : ''}`}>{reminder.title}</td>
+                                                <td className={cellClassName}>
+                                                    <div className="flex items-center space-x-2">
+                                                        <span>{formatDate(reminder.dueDate)}</span>
+                                                        <DocumentStatusBadge date={reminder.dueDate} />
+                                                    </div>
+                                                </td>
+                                                <td className={cellClassName}>{formatDate(reminder.reminderDate)}</td>
+                                                <td className={cellClassName}>
+                                                    <button onClick={() => handleToggleReminderStatus(reminder)} className={`px-2 py-1 text-xs font-semibold rounded-full ${reminder.status === 'Completed' ? 'bg-green-500/20 text-green-400' : 'bg-yellow-500/20 text-yellow-400'}`}>
+                                                        {reminder.status}
+                                                    </button>
+                                                </td>
+                                                <td className={`${cellClassName} truncate max-w-xs`}>{reminder.notes}</td>
+                                                <td className={`${cellClassName} rounded-r-md`}>
+                                                    <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
+                                                        <button onClick={() => { setEditingReminder(reminder); setShowReminderModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button>
+                                                        <button onClick={() => onReminderDeleteRequest(reminder)} className="p-1.5 hover:text-red-400"><Trash2 size={14}/></button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        );
+                                    })}
                                 </tbody>
                             </table>
                             {filteredReminders.length === 0 && <div className="text-center py-8 text-gray-500">No reminders found.</div>}
@@ -1530,8 +2115,30 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                 </div>
             </section>
             
-            <GenericAddEditModal isOpen={showDocModal} onSave={handleDocSave} onClose={() => setShowDocModal(false)} initialData={editingDoc} formFields={documentFormFields} title="Document"/>
-            <GenericAddEditModal isOpen={showCredModal} onSave={handleCredSave} onClose={() => setShowCredModal(false)} initialData={editingCred} formFields={credentialsConfig.formFields} title="Credential"/>
+            <DocCredModal 
+                isOpen={showDocModal} 
+                onSave={handleDocSave} 
+                onClose={() => setShowDocModal(false)} 
+                initialData={editingDoc} 
+                formFields={documentFormFields} 
+                title="Document"
+                userId={userId}
+                appId={appId}
+                collectionPrefix={collectionPrefix}
+                docId={editingDoc?.id}
+            />
+            <DocCredModal 
+                isOpen={showCredModal} 
+                onSave={handleCredSave} 
+                onClose={() => setShowCredModal(false)} 
+                initialData={editingCred} 
+                formFields={credentialsConfig.formFields} 
+                title="Credential"
+                userId={userId}
+                appId={appId}
+                collectionPrefix={collectionPrefix}
+                docId={editingCred?.id}
+            />
             <GenericAddEditModal isOpen={showReminderModal} onSave={handleReminderSave} onClose={() => setShowReminderModal(false)} initialData={editingReminder} formFields={reminderFormFields} title="Reminder"/>
         </div>
     )
@@ -1626,8 +2233,22 @@ const NotificationPage = ({ userId, appId }) => {
         employeeScanConfig.forEach(config => {
             (liveData[config.path] || []).filter(item => item.status === 'Active').forEach(item => {
                 employeeDocTypes.forEach(docType => {
-                    const expiryDate = item[docType.dateField]?.toDate();
-                    if (expiryDate) {
+                    const dateValue = item[docType.dateField];
+                    if (!dateValue) return;
+                    
+                    // Handle both Firestore Timestamp and regular Date objects
+                    let expiryDate;
+                    if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+                        expiryDate = dateValue.toDate();
+                    } else if (dateValue instanceof Date) {
+                        expiryDate = dateValue;
+                    } else if (typeof dateValue === 'string') {
+                        expiryDate = new Date(dateValue);
+                    } else {
+                        return; // Skip if not a valid date format
+                    }
+                    
+                    if (expiryDate && !isNaN(expiryDate.getTime())) {
                         const warningDate = new Date();
                         warningDate.setDate(new Date().getDate() + docType.days);
                         if (expiryDate <= warningDate) {
@@ -1669,8 +2290,21 @@ const NotificationPage = ({ userId, appId }) => {
         ];
         vehicleScanConfig.forEach(config => {
             (liveData[config.path] || []).forEach(item => {
-                const expiryDate = item.expiry?.toDate();
-                if (expiryDate) {
+                const dateValue = item.expiry;
+                if (!dateValue) return;
+                
+                let expiryDate;
+                if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+                    expiryDate = dateValue.toDate();
+                } else if (dateValue instanceof Date) {
+                    expiryDate = dateValue;
+                } else if (typeof dateValue === 'string') {
+                    expiryDate = new Date(dateValue);
+                } else {
+                    return;
+                }
+                
+                if (expiryDate && !isNaN(expiryDate.getTime())) {
                     const warningDate = new Date();
                     warningDate.setDate(today.getDate() + 30); // 30-day warning
                     if (expiryDate <= warningDate) {
@@ -1689,24 +2323,7 @@ const NotificationPage = ({ userId, appId }) => {
         });
 
         // --- VISAS ---
-        (liveData['visa_entries'] || []).forEach(item => {
-            const expiryDate = item.expiryDate?.toDate();
-            if (expiryDate) {
-                const warningDate = new Date();
-                warningDate.setDate(today.getDate() + 7); // 1 week warning
-                if (expiryDate <= warningDate) {
-                     const isExpired = expiryDate < today;
-                     notificationsBySource.visas.push({
-                        id: item.id,
-                        title: `Visa expiring for ${item.name}`,
-                        description: `Expiry Date: ${formatDate(expiryDate)}`,
-                        date: expiryDate,
-                        isExpired: isExpired,
-                        source: 'Visa Page',
-                     });
-                }
-            }
-        });
+        // Note: RP Issued Date (expiryDate) is not a reminder field, so we don't show notifications for it
 
         // --- DOCS & CREDS ---
         const docsCredsScanConfig = [
@@ -1718,8 +2335,21 @@ const NotificationPage = ({ userId, appId }) => {
          docsCredsScanConfig.forEach(config => {
             (liveData[config.path] || []).forEach(item => {
                 if(config.type === 'Company Document') {
-                    const expiryDate = item[config.dateField]?.toDate();
-                    if (expiryDate) {
+                    const dateValue = item[config.dateField];
+                    if (!dateValue) return;
+                    
+                    let expiryDate;
+                    if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+                        expiryDate = dateValue.toDate();
+                    } else if (dateValue instanceof Date) {
+                        expiryDate = dateValue;
+                    } else if (typeof dateValue === 'string') {
+                        expiryDate = new Date(dateValue);
+                    } else {
+                        return;
+                    }
+                    
+                    if (expiryDate && !isNaN(expiryDate.getTime())) {
                         const warningDate = new Date();
                         warningDate.setDate(new Date().getDate() + config.days);
                         if(expiryDate <= warningDate){
@@ -1733,8 +2363,21 @@ const NotificationPage = ({ userId, appId }) => {
                         }
                     }
                 } else { // Handle Credentials
-                     const expiryDate = item.expiry?.toDate();
-                     if(expiryDate){
+                     const dateValue = item.expiry;
+                     if (!dateValue) return;
+                     
+                     let expiryDate;
+                     if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+                         expiryDate = dateValue.toDate();
+                     } else if (dateValue instanceof Date) {
+                         expiryDate = dateValue;
+                     } else if (typeof dateValue === 'string') {
+                         expiryDate = new Date(dateValue);
+                     } else {
+                         return;
+                     }
+                     
+                     if(expiryDate && !isNaN(expiryDate.getTime())){
                         const nameValue = item.description?.toLowerCase() || '';
                         let days = 30;
                         let type = 'Credential';
@@ -1760,16 +2403,40 @@ const NotificationPage = ({ userId, appId }) => {
         const reminderScanConfig = [ { path: 'alMarriReminders', company: 'Al Marri' }, { path: 'fathoomReminders', company: 'Fathoom' }];
         reminderScanConfig.forEach(config => {
             (liveData[config.path] || []).filter(item => item.status === 'Pending').forEach(item => {
-                const reminderDate = item.reminderDate?.toDate();
-                if (reminderDate) {
+                const dateValue = item.reminderDate;
+                if (!dateValue) return;
+                
+                let reminderDate;
+                if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+                    reminderDate = dateValue.toDate();
+                } else if (dateValue instanceof Date) {
+                    reminderDate = dateValue;
+                } else if (typeof dateValue === 'string') {
+                    reminderDate = new Date(dateValue);
+                } else {
+                    return;
+                }
+                
+                if (reminderDate && !isNaN(reminderDate.getTime())) {
                     const warningThreshold = new Date(); warningThreshold.setDate(today.getDate() + 3);
                     if (reminderDate < warningThreshold) {
+                         // Handle dueDate for display
+                         const dueDateValue = item.dueDate;
+                         let dueDate;
+                         if (dueDateValue?.toDate && typeof dueDateValue.toDate === 'function') {
+                             dueDate = dueDateValue.toDate();
+                         } else if (dueDateValue instanceof Date) {
+                             dueDate = dueDateValue;
+                         } else if (typeof dueDateValue === 'string') {
+                             dueDate = new Date(dueDateValue);
+                         }
+                         
                          notificationsBySource.docs_creds.push({
                             id: item.id,
                             title: `Reminder: ${item.title}`,
                             description: `Due Date: ${formatDate(item.dueDate)}`,
-                            date: item.dueDate?.toDate(),
-                            isExpired: item.dueDate?.toDate() < today,
+                            date: dueDate,
+                            isExpired: dueDate && !isNaN(dueDate.getTime()) ? dueDate < today : false,
                             source: config.company
                         });
                     }
@@ -1779,8 +2446,21 @@ const NotificationPage = ({ userId, appId }) => {
 
         // --- DEBTS & CREDITS ---
         (liveData['debts_credits'] || []).forEach(item => {
-            const dueDate = item.dueDate?.toDate();
-            if (dueDate) {
+            const dateValue = item.dueDate;
+            if (!dateValue) return;
+            
+            let dueDate;
+            if (dateValue.toDate && typeof dateValue.toDate === 'function') {
+                dueDate = dateValue.toDate();
+            } else if (dateValue instanceof Date) {
+                dueDate = dateValue;
+            } else if (typeof dateValue === 'string') {
+                dueDate = new Date(dateValue);
+            } else {
+                return;
+            }
+            
+            if (dueDate && !isNaN(dueDate.getTime())) {
                 const warningThreshold = new Date(); warningThreshold.setDate(today.getDate() + 3);
                 if (dueDate < warningThreshold) {
                     const isExpired = dueDate < today;
@@ -1886,22 +2566,23 @@ const NotificationPage = ({ userId, appId }) => {
 
     return (
         <div className="p-4 sm:p-8">
-            
-            <div className="dark:bg-gray-800 bg-white p-6 rounded-lg">
-                {loading ? (
-                    <div className="text-center"><Loader2 className="animate-spin inline-block mr-2" /> Loading notifications...</div>
-                ) : !hasNotifications ? (
-                    <div className="text-center text-gray-500 py-8">No urgent notifications. Everything is up to date!</div>
-                ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
-                        <NotificationGroup title="Employees" items={notifications.employees} icon={<Users size={24}/>} colorConfig={notificationColors.employees} />
-                        <NotificationGroup title="Vehicles" items={notifications.vehicles} icon={<Car size={24}/>} colorConfig={notificationColors.vehicles} />
-                        <NotificationGroup title="Visa Expiries" items={notifications.visas} icon={<IdCard size={24}/>} colorConfig={notificationColors.visas} />
-                        <NotificationGroup title="Documents & Credentials" items={notifications.docs_creds} icon={<IdCard size={24}/>} colorConfig={notificationColors.docs_creds} />
-                        <NotificationGroup title="Debts & Credits" items={notifications.debts_credits} icon={<HandCoins size={24}/>} colorConfig={notificationColors.debts_credits} />
-                        <NotificationGroup title="Business" items={notifications.business} icon={<Briefcase size={24}/>} colorConfig={notificationColors.business} />
-                    </div>
-                )}
+            <div className="max-w-[1800px] mx-auto">
+                <div className="dark:bg-gray-800 bg-white p-6 rounded-lg">
+                    {loading ? (
+                        <div className="text-center"><Loader2 className="animate-spin inline-block mr-2" /> Loading notifications...</div>
+                    ) : !hasNotifications ? (
+                        <div className="text-center text-gray-500 py-8">No urgent notifications. Everything is up to date!</div>
+                    ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                            <NotificationGroup title="Employees" items={notifications.employees} icon={<Users size={24}/>} colorConfig={notificationColors.employees} />
+                            <NotificationGroup title="Vehicles" items={notifications.vehicles} icon={<Car size={24}/>} colorConfig={notificationColors.vehicles} />
+                            <NotificationGroup title="Visa Expiries" items={notifications.visas} icon={<IdCard size={24}/>} colorConfig={notificationColors.visas} />
+                            <NotificationGroup title="Documents & Credentials" items={notifications.docs_creds} icon={<IdCard size={24}/>} colorConfig={notificationColors.docs_creds} />
+                            <NotificationGroup title="Debts & Credits" items={notifications.debts_credits} icon={<HandCoins size={24}/>} colorConfig={notificationColors.debts_credits} />
+                            <NotificationGroup title="Business" items={notifications.business} icon={<Briefcase size={24}/>} colorConfig={notificationColors.business} />
+                        </div>
+                    )}
+                </div>
             </div>
         </div>
     );
@@ -1909,7 +2590,7 @@ const NotificationPage = ({ userId, appId }) => {
 
 const visaFormFields = [
     { name: 'date', label: 'Applied Date', type: 'date' }, // Changed label
-    { name: 'expiryDate', label: 'RP Issued Date', type: 'date' }, // Changed label
+    { name: 'expiryDate', label: 'RP Issued Date', type: 'date', noDefaultDate: true }, // Changed label, no auto-date
     { name: 'vpNumber', label: 'VP Number' },
     { name: 'company', label: 'Company', type: 'select', options: ['ALM', 'FTH', 'Others'], defaultValue: 'ALM' },
     { name: 'visaNumber', label: 'Visa Number' },
@@ -2278,6 +2959,100 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                 }
             }
         });
+    };
+
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+            
+            // Check which sheets exist
+            const hasVisaEntries = workbook.SheetNames.includes('Visa Entries');
+            const hasPnlEntries = workbook.SheetNames.includes('Visa P&L');
+            
+            if (!hasVisaEntries && !hasPnlEntries) {
+                throw new Error('No valid sheets found. Expected "Visa Entries" and/or "Visa P&L"');
+            }
+
+            setConfirmAction({
+                title: 'Confirm Import',
+                message: `This will import visa data from the Excel file. Existing entries with the same ID will be updated. Continue?`,
+                confirmText: 'Import',
+                type: 'import',
+                action: async () => {
+                    try {
+                        // Import Visa Entries
+                        if (hasVisaEntries) {
+                            const visaSheet = workbook.Sheets['Visa Entries'];
+                            const visaData = window.XLSX.utils.sheet_to_json(visaSheet);
+                            
+                            for (const row of visaData) {
+                                const entryData = {
+                                    date: parseDateForFirestore(row['Applied Date']) || new Date(),
+                                    expiryDate: parseDateForFirestore(row['RP Issued Date']) || new Date(),
+                                    vpNumber: row['VP Number'] || '',
+                                    company: row['Company'] || '',
+                                    gender: row['Gender'] || '',
+                                    profession: row['Profession'] || '',
+                                    status: row['Status'] || 'New',
+                                    remarks: row['Remarks'] || ''
+                                };
+
+                                if (row.id) {
+                                    await setDoc(doc(entriesRef, row.id), entryData, { merge: true });
+                                } else {
+                                    await addDoc(entriesRef, entryData);
+                                }
+                            }
+                        }
+
+                        // Import P&L Entries
+                        if (hasPnlEntries) {
+                            const pnlSheet = workbook.Sheets['Visa P&L'];
+                            const pnlData = window.XLSX.utils.sheet_to_json(pnlSheet);
+                            
+                            for (const row of pnlData) {
+                                const pnlEntryData = {
+                                    date: parseDateForFirestore(row['Date']) || new Date(),
+                                    holderName: row['Holder Name'] || '',
+                                    careOff: row['C/O'] || '',
+                                    nationality: row['Nationality'] || '',
+                                    profession: row['Profession'] || '',
+                                    visaNo: row['Visa No'] || '',
+                                    price: Number(row['Price']) || 0,
+                                    approvalExp: Number(row['Approval Exp']) || 0,
+                                    proExp: Number(row['PRO Exp']) || 0,
+                                    govtExpenses: Number(row['Govt Expenses']) || 0,
+                                    commissionExp: Number(row['Commission Exp']) || 0,
+                                    received: Number(row['Received']) || 0
+                                };
+
+                                if (row.id) {
+                                    await setDoc(doc(pnlEntriesRef, row.id), pnlEntryData, { merge: true });
+                                } else {
+                                    await addDoc(pnlEntriesRef, pnlEntryData);
+                                }
+                            }
+                        }
+
+                        alert('Import successful!');
+                    } catch (error) {
+                        console.error('Import process failed:', error);
+                        alert(`Import failed: ${error.message}`);
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Import failed:', error);
+            alert(`Failed to read Excel file: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
     };
 
     useEffect(() => {
@@ -2812,29 +3587,31 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                                 {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
                             </select>
                         )}
-                        <button onClick={handleExportJson} disabled={isExporting} title="Export to JSON" className="p-2 bg-green-500 rounded-full hover:bg-green-600 transition-colors disabled:opacity-50">
-                            {isExporting ? <Loader2 size={20} className="animate-spin" /> : <Download size={20}/>}
-                        </button>
-                        {/* --- ADDED BUTTON --- */}
+                        {/* Excel Export Button */}
                         <button 
                             onClick={handleExportExcel} 
-                            disabled={isExportingExcel || isExporting || isImporting} 
+                            disabled={isExportingExcel || isImporting} 
                             title="Export to Excel" 
                             className="p-2 bg-green-700 rounded-full hover:bg-green-800 transition-colors disabled:opacity-50"
                         >
                             {isExportingExcel ? <Loader2 size={20} className="animate-spin" /> : <FileCheck2 size={20}/>}
                         </button>
-                        {/* --- END OF ADDITION --- */}
-                        <button onClick={triggerImport} disabled={isImporting} title="Import from JSON" className="p-2 bg-blue-500 rounded-full hover:bg-blue-600 transition-colors disabled:opacity-50">
-                            {isImporting ? <Loader2 size={20} className="animate-spin" /> : <FileUp size={20}/>}
-                        </button>
+                        {/* Excel Import Button */}
                         <input
-                            type="file"
                             ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
+                            type="file"
+                            accept=".xlsx,.xls"
+                            onChange={handleImportExcel}
                             className="hidden"
-                            accept=".json,application/json"
                         />
+                        <button 
+                            onClick={() => importFileInputRef.current?.click()} 
+                            disabled={isImporting || isExportingExcel} 
+                            title="Import from Excel" 
+                            className="p-2 bg-blue-700 rounded-full hover:bg-blue-800 transition-colors disabled:opacity-50"
+                        >
+                            {isImporting ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20}/>}
+                        </button>
                         {activeView !== 'pnl' ? (
                             <button onClick={() => { setEditingEntry(null); setShowModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa Entry">
                                 <PlusCircle size={20}/>
@@ -3299,16 +4076,125 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
         importFileInputRef.current?.click();
     };
 
+    const handleExportExcel = async () => {
+        setIsExporting(true);
+        try {
+            const statementsData = statements.map(stmt => ({
+                id: stmt.id,
+                to: stmt.to,
+                clientAddress: stmt.clientAddress,
+                subject: stmt.subject,
+                date: formatDate(stmt.date),
+                greeting: stmt.greeting,
+                body: stmt.body,
+                invoiceItems: JSON.stringify(stmt.invoiceItems),
+                paymentTerms: stmt.paymentTerms,
+                closingName: stmt.closingName,
+                notes: stmt.notes
+            }));
+
+            const worksheet = window.XLSX.utils.json_to_sheet(statementsData);
+            const workbook = window.XLSX.utils.book_new();
+            window.XLSX.utils.book_append_sheet(workbook, worksheet, 'Statements');
+            window.XLSX.writeFile(workbook, `statements_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export statements. Check console for details.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+            const worksheet = workbook.Sheets['Statements'];
+            
+            if (!worksheet) {
+                throw new Error('No "Statements" sheet found in the Excel file');
+            }
+
+            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+            
+            setConfirmAction({
+                title: 'Confirm Import',
+                message: `This will import ${jsonData.length} statements. Existing statements with the same ID will be updated. Continue?`,
+                confirmText: 'Import',
+                type: 'import',
+                action: async () => {
+                    for (const row of jsonData) {
+                        const statementData = {
+                            to: row.to || '',
+                            clientAddress: row.clientAddress || '',
+                            subject: row.subject || 'Account Statement',
+                            date: parseDateForFirestore(row.date) || new Date(),
+                            greeting: row.greeting || '',
+                            body: row.body || '',
+                            invoiceItems: row.invoiceItems ? JSON.parse(row.invoiceItems) : [],
+                            paymentTerms: row.paymentTerms || '',
+                            closingName: row.closingName || companyDetails.name,
+                            notes: row.notes || ''
+                        };
+
+                        if (row.id) {
+                            await setDoc(doc(statementsRef, row.id), statementData, { merge: true });
+                        } else {
+                            await addDoc(statementsRef, statementData);
+                        }
+                    }
+                    alert('Import successful!');
+                }
+            });
+        } catch (error) {
+            console.error('Import failed:', error);
+            alert(`Failed to import statements: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
 
     return (
         <div className="flex h-[calc(100vh-70px)] dark:bg-gray-900 bg-gray-100">
             <div className="w-full max-w-xs xl:max-w-sm border-r dark:border-gray-700 border-gray-200 flex flex-col">
                 <div className="p-4 border-b dark:border-gray-700 border-gray-200 flex-shrink-0">
-                    <div className="flex justify-between items-center">
+                    <div className="flex justify-between items-center mb-2">
                         <h2 className="text-xl font-bold">Statements</h2>
                         <button onClick={createNewStatement} className="flex items-center space-x-2 px-3 py-1.5 bg-cyan-500 rounded-md hover:bg-cyan-600 text-sm">
                             <PlusCircle size={16}/>
                             <span>New</span>
+                        </button>
+                    </div>
+                    <div className="flex items-center gap-2 mt-2">
+                        <button
+                            onClick={handleExportExcel}
+                            disabled={isExporting}
+                            className="flex items-center space-x-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50 flex-1"
+                            title="Export Statements to Excel"
+                        >
+                            <Download className="h-4 w-4" />
+                            <span>Export Excel</span>
+                        </button>
+                        <input
+                            ref={importFileInputRef}
+                            type="file"
+                            accept=".xlsx,.xls"
+                            onChange={handleImportExcel}
+                            className="hidden"
+                        />
+                        <button
+                            onClick={() => importFileInputRef.current?.click()}
+                            disabled={isImporting}
+                            className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50 flex-1"
+                            title="Import Statements from Excel"
+                        >
+                            <Upload className="h-4 w-4" />
+                            <span>Import Excel</span>
                         </button>
                     </div>
                 </div>
@@ -3324,23 +4210,7 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                     </div>
                     )) : <p className="p-4 text-center text-gray-500">No statements saved.</p>}
                 </div>
-                <div className="p-4 border-t dark:border-gray-700 border-gray-200 flex-shrink-0">
-                    <div className="flex items-center space-x-2">
-                        <button onClick={handleExportJson} disabled={isExporting} title="Export to JSON" className="p-2.5 bg-green-500 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50 flex-1 justify-center flex">
-                            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                        </button>
-                        <button onClick={triggerImport} disabled={isImporting} title="Import from JSON" className="p-2.5 bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50 flex-1 justify-center flex">
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                        </button>
-                        <input
-                            type="file"
-                            ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
-                            className="hidden"
-                            accept=".json,application/json"
-                        />
-                    </div>
-                </div>
+
             </div>
 
             <div className="flex-1 overflow-y-auto">
@@ -3762,7 +4632,7 @@ export default function App() {
 
         return (
             <>
-                {isCompanyPage && <CompanySubNav activeSubPage={activeSubPage} setActiveSubPage={setActiveSubPage} {...commonProps} />}
+                {isCompanyPage && <CompanySubNav activeSubPage={activeSubPage} setActiveSubPage={setActiveSubPage} collectionPrefix={currentPage === 'al_marri' ? 'alMarri' : 'fathoom'} pageTitle={currentPage === 'al_marri' ? 'Mohamed Al Marri Trading' : 'Fathoom Transportation'} {...commonProps} />}
                 <main ref={mainContentRef}>
                     {(() => {
                         switch (currentPage) {
@@ -4013,8 +4883,11 @@ const Header = ({ userId, appId, onUndoClick, toggleTheme, theme, currentPage, s
     );
 };
 
-const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId }) => {
+const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collectionPrefix, pageTitle }) => {
     const [subNavLinks, setSubNavLinks] = useState([]);
+    const [isExporting, setIsExporting] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
+    const importFileInputRef = useRef(null);
     const settingsRef = useMemo(() => (userId && appId !== 'default-app-id') ? doc(db, `artifacts/${appId}/users/${userId}/settings/app_settings`) : null, [userId, appId]);
      
     useEffect(() => {
@@ -4047,8 +4920,160 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId }) => {
         return () => unsub();
     }, [settingsRef]);
 
+    const handleExportExcel = async () => {
+        setIsExporting(true);
+        try {
+            const collections = [
+                { name: 'Employees', path: `${collectionPrefix}Data` },
+                { name: 'Vehicles', path: `${collectionPrefix}Vehicles` },
+                { name: 'WPS', path: `wps_${collectionPrefix.toLowerCase()}` },
+                { name: 'Bank', path: `bank_${collectionPrefix.toLowerCase()}` },
+                { name: 'Audit', path: `audit_${collectionPrefix.toLowerCase()}` },
+                { name: 'Documents', path: `${collectionPrefix}Documents` },
+                { name: 'Credentials', path: `${collectionPrefix}Credentials` },
+                { name: 'Cheques', path: `cheques_${collectionPrefix.toLowerCase()}` },
+                { name: 'Others', path: `others_${collectionPrefix.toLowerCase()}` }
+            ];
+
+            const workbook = XLSX.utils.book_new();
+
+            // Define column order priorities - document fields should be last
+            const documentFields = ['photoUrl', 'idCopyUrl', 'ppCopyUrl', 'lcCopyUrl', 'settleDocUrl', 
+                                   'visaUrl', 'passportUrl', 'contractUrl', 'documentUrl', 'fileUrl', 
+                                   'attachmentUrl', 'proofUrl', 'receiptUrl', 'imageUrl'];
+
+            for (const col of collections) {
+                const snapshot = await getDocs(collection(db, `artifacts/${appId}/users/${userId}/${col.path}`));
+                const data = snapshot.docs.map(doc => {
+                    const docData = { ...doc.data(), id: doc.id };
+                    // Convert Firestore timestamps to readable dates
+                    Object.keys(docData).forEach(key => {
+                        if (docData[key]?.toDate) {
+                            docData[key] = formatDate(docData[key]);
+                        }
+                    });
+                    return docData;
+                });
+
+                if (data.length > 0) {
+                    // Reorder columns: basic info first, document URLs last
+                    const reorderedData = data.map(row => {
+                        const basicFields = {};
+                        const docFields = {};
+                        
+                        // Separate basic fields from document fields
+                        Object.keys(row).forEach(key => {
+                            if (documentFields.includes(key)) {
+                                docFields[key] = row[key];
+                            } else {
+                                basicFields[key] = row[key];
+                            }
+                        });
+                        
+                        // Combine with document fields at the end
+                        return { ...basicFields, ...docFields };
+                    });
+
+                    const worksheet = XLSX.utils.json_to_sheet(reorderedData);
+                    
+                    // Convert URL fields to clickable hyperlinks
+                    const range = XLSX.utils.decode_range(worksheet['!ref']);
+                    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
+                        for (let C = range.s.c; C <= range.e.c; ++C) {
+                            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+                            const cell = worksheet[cellAddress];
+                            
+                            if (cell && cell.v && typeof cell.v === 'string') {
+                                // Check if this is a URL field
+                                const headerAddress = XLSX.utils.encode_cell({ r: 0, c: C });
+                                const headerCell = worksheet[headerAddress];
+                                
+                                if (headerCell && documentFields.includes(headerCell.v)) {
+                                    // Convert to hyperlink if it's a valid URL
+                                    if (cell.v.startsWith('http')) {
+                                        cell.l = { Target: cell.v, Tooltip: 'Click to open document' };
+                                        cell.v = 'View Document';
+                                        cell.s = { 
+                                            font: { color: { rgb: "FFFFFF" }, bold: true },
+                                            fill: { fgColor: { rgb: "22C55E" } },
+                                            alignment: { horizontal: "center", vertical: "center" }
+                                        };
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    XLSX.utils.book_append_sheet(workbook, worksheet, col.name);
+                }
+            }
+
+            XLSX.writeFile(workbook, `${pageTitle.replace(/ /g, '_')}_Complete_Data_${new Date().toISOString().split('T')[0]}.xlsx`);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export data. Check console for details.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = XLSX.read(data);
+
+            const sheetMappings = {
+                'Employees': `${collectionPrefix}Data`,
+                'Vehicles': `${collectionPrefix}Vehicles`,
+                'WPS': `wps_${collectionPrefix.toLowerCase()}`,
+                'Bank': `bank_${collectionPrefix.toLowerCase()}`,
+                'Audit': `audit_${collectionPrefix.toLowerCase()}`,
+                'Documents': `${collectionPrefix}Documents`,
+                'Credentials': `${collectionPrefix}Credentials`,
+                'Cheques': `cheques_${collectionPrefix.toLowerCase()}`,
+                'Others': `others_${collectionPrefix.toLowerCase()}`
+            };
+
+            for (const sheetName of workbook.SheetNames) {
+                const collectionPath = sheetMappings[sheetName];
+                if (!collectionPath) continue;
+
+                const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+                const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+
+                for (const row of sheetData) {
+                    const { id, ...dataWithoutId } = row;
+                    // Convert date strings back to Firestore timestamps
+                    Object.keys(dataWithoutId).forEach(key => {
+                        if (typeof dataWithoutId[key] === 'string' && dataWithoutId[key].match(/^\d{4}-\d{2}-\d{2}$/)) {
+                            dataWithoutId[key] = parseDateForFirestore(dataWithoutId[key]);
+                        }
+                    });
+
+                    if (id) {
+                        await setDoc(doc(collectionRef, id), dataWithoutId, { merge: true });
+                    } else {
+                        await addDoc(collectionRef, dataWithoutId);
+                    }
+                }
+            }
+
+            alert('Data imported successfully!');
+        } catch (error) {
+            console.error('Import failed:', error);
+            alert('Failed to import data. Check console for details.');
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
+
     return (
-         <nav className="dark:bg-gray-800/80 bg-white/80 backdrop-blur-sm p-2 flex justify-center items-center space-x-1 sm:space-x-2 sticky top-[70px] z-40 shadow-sm flex-wrap">
+         <nav className="dark:bg-gray-800/80 bg-white/80 backdrop-blur-sm p-2 flex justify-center items-center gap-2 sticky top-[70px] z-40 shadow-sm flex-wrap">
             {subNavLinks.map(link => (
                 <button
                     key={link.id}
@@ -4063,6 +5088,35 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId }) => {
                     <span>{link.title}</span>
                 </button>
             ))}
+
+            <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+
+            <button
+                onClick={handleExportExcel}
+                disabled={isExporting}
+                className="flex items-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50"
+                title="Export all company data to Excel"
+            >
+                <Download className="h-4 w-4" />
+                <span className="hidden sm:inline">Export Excel</span>
+            </button>
+
+            <input
+                ref={importFileInputRef}
+                type="file"
+                accept=".xlsx,.xls"
+                onChange={handleImportExcel}
+                className="hidden"
+            />
+            <button
+                onClick={() => importFileInputRef.current?.click()}
+                disabled={isImporting}
+                className="flex items-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50"
+                title="Import company data from Excel"
+            >
+                <Upload className="h-4 w-4" />
+                <span className="hidden sm:inline">Import Excel</span>
+            </button>
         </nav>
     );
 }
@@ -5179,6 +6233,86 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
             }
         });
     };
+
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+
+            setConfirmAction({
+                title: 'Confirm Import',
+                message: `This will import business data from ${workbook.SheetNames.length} sheets. Existing entries with the same ID will be updated. Continue?`,
+                confirmText: 'Import',
+                type: 'import',
+                action: async () => {
+                    try {
+                        for (const sheetName of workbook.SheetNames) {
+                            const worksheet = workbook.Sheets[sheetName];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+                            
+                            // Find the matching section
+                            const matchingSection = allDisplaySections.find(s => 
+                                s.title === sheetName || 
+                                s.title.replace(/[\\/*?[\]:]/g, "").substring(0, 31) === sheetName
+                            );
+                            
+                            if (!matchingSection) {
+                                console.warn(`No matching section found for sheet: ${sheetName}`);
+                                continue;
+                            }
+
+                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${matchingSection.collectionPath}`);
+                            
+                            for (const row of jsonData) {
+                                const { id, ...dataWithoutId } = row;
+                                
+                                // Convert date strings back to Firestore timestamps
+                                Object.keys(dataWithoutId).forEach(key => {
+                                    const value = dataWithoutId[key];
+                                    if (typeof value === 'string') {
+                                        // Try to parse as date
+                                        if (value.match(/^\d{2}\/\d{2}\/\d{4}$/)) {
+                                            dataWithoutId[key] = parseDateForFirestore(value);
+                                        }
+                                        // Try to parse as JSON (for arrays/objects)
+                                        else if ((value.startsWith('[') && value.endsWith(']')) || 
+                                                 (value.startsWith('{') && value.endsWith('}'))) {
+                                            try {
+                                                dataWithoutId[key] = JSON.parse(value);
+                                            } catch (e) {
+                                                // Keep as string if parsing fails
+                                            }
+                                        }
+                                    }
+                                });
+
+                                if (id) {
+                                    await setDoc(doc(collectionRef, id), dataWithoutId, { merge: true });
+                                } else {
+                                    await addDoc(collectionRef, dataWithoutId);
+                                }
+                            }
+                        }
+
+                        alert('Import successful!');
+                    } catch (error) {
+                        console.error('Import process failed:', error);
+                        alert(`Import failed: ${error.message}`);
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Import failed:', error);
+            alert(`Failed to read Excel file: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
     // --- END NEW EXCEL EXPORT FUNCTIONS ---
 
 
@@ -5641,13 +6775,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                             )}
                             {/* --- NEW FILTERS END --- */}
 
-                            <button onClick={handleExportJson} disabled={isExporting || isImporting || isClearingData} title="Export to JSON" className="p-2.5 dark:bg-green-600 bg-gray-200 text-sm rounded-md dark:hover:bg-green-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                            </button>
-                            <button onClick={triggerImport} disabled={isImporting || isExporting || isClearingData} title="Import from JSON" className="p-2.5 dark:bg-blue-600 bg-gray-200 text-sm rounded-md dark:hover:bg-blue-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                                {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                            </button>
-                            {/* --- NEW EXCEL EXPORT BUTTON --- */}
+                            {/* Excel Export Button */}
                             <button 
                                 onClick={handleExportExcel} 
                                 disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
@@ -5656,19 +6784,26 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                             >
                                 {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
                             </button>
-                            {/* --- END NEW EXCEL EXPORT BUTTON --- */}
-                            {/* --- NEW BUTTON HERE --- */}
-                            <button onClick={handleClearBusinessData} disabled={isClearingData || isImporting || isExporting} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                            {/* Excel Import Button */}
+                            <input
+                                ref={importFileInputRef}
+                                type="file"
+                                accept=".xlsx,.xls"
+                                onChange={handleImportExcel}
+                                className="hidden"
+                            />
+                            <button 
+                                onClick={() => importFileInputRef.current?.click()} 
+                                disabled={isImporting || isExportingExcel || isExporting || isClearingData} 
+                                title="Import Business (BS1) from Excel" 
+                                className="p-2.5 dark:bg-blue-700 bg-blue-100 text-sm rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 no-print disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700"
+                            >
+                                {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
+                            </button>
+                            {/* Clear All Button */}
+                            <button onClick={handleClearBusinessData} disabled={isClearingData || isExportingExcel} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                                 {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                             </button>
-                            {/* --- END NEW BUTTON --- */}
-                            <input
-                                type="file"
-                                ref={importFileInputRef}
-                                onChange={handleImportJsonChange}
-                                className="hidden"
-                                accept=".json,application/json"
-                            />
                              <AddNewBusinessSection onAdd={handleAddSection} />
                         </div>
                     </nav>
@@ -5704,28 +6839,138 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     );
 };
 
-const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId, appId, collectionPath }) => {
+const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId, appId, collectionPath, setConfirmAction }) => {
     const defaultState = {
         eNo: '', fullName: '', nationality: '', profession: '', qid: '', qidExpiry: '', 
         contact1: '', status: 'Active',
         idCopy: false, ppCopy: false, lcCopy: false, settle: false,
         gender: '',
         idCopyUrl: '', ppCopyUrl: '', lcCopyUrl: '', settleDocUrl: '',
+        joinDate: '', departedDate: '', passport: '', passportExpiry: '',
+        payCard: '', payCardPin: '', payCardExpiry: '',
+        labourContract: '', labourContractExpiry: '',
+        contact2: '', contact3: '', address: '', notes: '',
+        photoURL: '', storagePath: '',
     };
     const [formData, setFormData] = useState(initialData ? 
         {
             ...initialData,
             qidExpiry: formatDate(initialData.qidExpiry),
+            joinDate: formatDate(initialData.joinDate),
+            departedDate: formatDate(initialData.departedDate),
+            passportExpiry: formatDate(initialData.passportExpiry),
+            payCardExpiry: formatDate(initialData.payCardExpiry),
+            labourContractExpiry: formatDate(initialData.labourContractExpiry),
         } 
         : defaultState
     );
     const [errorMessage, setErrorMessage] = useState('');
     const [docUploadStates, setDocUploadStates] = useState({});
+    const [pendingDocs, setPendingDocs] = useState({}); // Store files for new employees
+    const [pendingPhoto, setPendingPhoto] = useState(null); // Store photo for new employees
     const [docPreview, setDocPreview] = useState(null);
+    const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+    const [photoUploadError, setPhotoUploadError] = useState(null);
+    const photoInputRef = useRef(null);
+    const employeeDocRef = useMemo(() => 
+        initialData?.id ? doc(db, `artifacts/${appId}/users/${userId}/${collectionPath}`, initialData.id) : null,
+        [appId, userId, collectionPath, initialData?.id]
+    );
     
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
+    };
+
+    const handlePhotoChange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (file.size > 5 * 1024 * 1024) {
+            setPhotoUploadError("File is too large. Please select an image under 5MB.");
+            return;
+        }
+
+        // For new employees (no ID yet), store file temporarily
+        if (!initialData?.id) {
+            setPendingPhoto(file);
+            // Create a preview URL
+            const previewURL = URL.createObjectURL(file);
+            setFormData(prev => ({ ...prev, photoURL: previewURL }));
+            setPhotoUploadError(null);
+            return;
+        }
+
+        setIsUploadingPhoto(true);
+        setPhotoUploadError(null);
+
+        try {
+            // Delete old photo if exists
+            if (formData.storagePath) {
+                try {
+                    const oldStorageRef = ref(storage, formData.storagePath);
+                    await deleteObject(oldStorageRef);
+                } catch (deleteErr) {
+                    console.warn("Could not delete old photo:", deleteErr);
+                }
+            }
+
+            // Upload new photo
+            const storagePath = `employee_photos/${collectionPath}/${initialData.id}/${Date.now()}_${file.name}`;
+            const newStorageRef = ref(storage, storagePath);
+            await uploadBytes(newStorageRef, file);
+            const downloadURL = await getDownloadURL(newStorageRef);
+
+            // Update Firestore
+            await updateDoc(employeeDocRef, {
+                photoURL: downloadURL,
+                storagePath: storagePath
+            });
+
+            // Update local state
+            setFormData(prev => ({
+                ...prev,
+                photoURL: downloadURL,
+                storagePath: storagePath
+            }));
+
+        } catch (err) {
+            console.error("Error uploading photo:", err);
+            setPhotoUploadError("Upload failed. Please try again.");
+        } finally {
+            setIsUploadingPhoto(false);
+            if (photoInputRef.current) photoInputRef.current.value = "";
+        }
+    };
+
+    const handleRemovePhoto = async () => {
+        if (!formData.storagePath || !initialData?.id) return;
+
+        if (!window.confirm(`Are you sure you want to remove the profile photo?`)) {
+            return;
+        }
+
+        setIsUploadingPhoto(true);
+        try {
+            const storageRef = ref(storage, formData.storagePath);
+            await deleteObject(storageRef);
+            
+            await updateDoc(employeeDocRef, {
+                photoURL: null,
+                storagePath: null
+            });
+            
+            setFormData(prev => ({
+                ...prev,
+                photoURL: null,
+                storagePath: null
+            }));
+        } catch (err) {
+            console.error("Error removing photo:", err);
+            setPhotoUploadError("Could not remove photo. Please try again.");
+        } finally {
+            setIsUploadingPhoto(false);
+        }
     };
 
     const handleDocumentUpload = async (type, file) => {
@@ -5739,18 +6984,24 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
             return;
         }
         
-        // For new employees (no ID yet), store file temporarily
+        // For new employees (no ID yet), store file temporarily to upload after save
         if (!initialData?.id) {
-            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'Save employee first, then upload documents.' } }));
+            setPendingDocs(prev => ({ ...prev, [type]: file }));
+            setFormData(prev => ({ ...prev, [type]: true }));
             return;
         }
 
         setDocUploadStates(prev => ({ ...prev, [type]: { uploading: true, error: null } }));
         try {
+            console.log('[EMPLOYEE MODAL] Starting upload...', { type, userId, appId, currentUser: auth.currentUser?.uid });
             const storagePath = `employee_docs/${collectionPath}/${initialData.id}/${type}_${Date.now()}.pdf`;
             const storageRef = ref(storage, storagePath);
+            console.log('[EMPLOYEE MODAL] Storage path:', storagePath);
+            console.log('[EMPLOYEE MODAL] Auth token:', await auth.currentUser?.getIdToken());
             await uploadBytes(storageRef, file);
+            console.log('[EMPLOYEE MODAL] Upload successful, getting URL...');
             const downloadURL = await getDownloadURL(storageRef);
+            console.log('[EMPLOYEE MODAL] Download URL:', downloadURL);
             
             // Update Firestore immediately
             const employeesRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
@@ -5771,8 +7022,11 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
             
             setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: null } }));
         } catch (err) {
-            console.error('Upload failed:', err);
-            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: 'Upload failed.' } }));
+            console.error('[EMPLOYEE MODAL] Upload failed:', err);
+            console.error('[EMPLOYEE MODAL] Error code:', err.code);
+            console.error('[EMPLOYEE MODAL] Error message:', err.message);
+            console.error('[EMPLOYEE MODAL] Full error:', JSON.stringify(err, null, 2));
+            setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: `Upload failed: ${err.message || 'Unknown error'}` } }));
         }
     };
 
@@ -5839,146 +7093,385 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
         }
 
         setErrorMessage('');
-        onSave({
+        
+        const dataToSave = {
             ...formData,
             fullName: capitalizeWords(formData.fullName),
             gender: (formData.gender || '').toUpperCase(),
             nationality: capitalizeWords(formData.nationality),
             profession: capitalizeWords(formData.profession),
             qidExpiry: parseDateForFirestore(formData.qidExpiry),
-        });
+            joinDate: parseDateForFirestore(formData.joinDate),
+            departedDate: parseDateForFirestore(formData.departedDate),
+            passportExpiry: parseDateForFirestore(formData.passportExpiry),
+            payCardExpiry: parseDateForFirestore(formData.payCardExpiry),
+            labourContractExpiry: parseDateForFirestore(formData.labourContractExpiry),
+        };
+
+        // If new employee with pending docs or photo, handle uploads after save
+        if (!initialData?.id && (Object.keys(pendingDocs).length > 0 || pendingPhoto)) {
+            // Save employee first, then upload docs and photo
+            const uploadPendingFiles = async (newEmployeeId) => {
+                // Upload pending photo first
+                if (pendingPhoto) {
+                    try {
+                        const storagePath = `employee_photos/${collectionPath}/${newEmployeeId}/${Date.now()}_${pendingPhoto.name}`;
+                        const storageRef = ref(storage, storagePath);
+                        await uploadBytes(storageRef, pendingPhoto);
+                        const downloadURL = await getDownloadURL(storageRef);
+                        
+                        const employeesRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+                        await updateDoc(doc(employeesRef, newEmployeeId), {
+                            photoURL: downloadURL,
+                            storagePath: storagePath,
+                            updatedAt: new Date()
+                        });
+                    } catch (err) {
+                        console.error('Failed to upload photo:', err);
+                    }
+                }
+                
+                // Upload pending documents
+                for (const [type, file] of Object.entries(pendingDocs)) {
+                    try {
+                        const storagePath = `employee_docs/${collectionPath}/${newEmployeeId}/${type}_${Date.now()}.pdf`;
+                        const storageRef = ref(storage, storagePath);
+                        await uploadBytes(storageRef, file);
+                        const downloadURL = await getDownloadURL(storageRef);
+                        
+                        const employeesRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+                        await updateDoc(doc(employeesRef, newEmployeeId), {
+                            [`${type}`]: true,
+                            [`${type}Url`]: downloadURL,
+                            [`${type}StoragePath`]: storagePath,
+                            updatedAt: new Date()
+                        });
+                    } catch (err) {
+                        console.error(`Failed to upload ${type}:`, err);
+                    }
+                }
+            };
+            
+            // Save with callback to upload files
+            onSave(dataToSave, uploadPendingFiles);
+        } else {
+            onSave(dataToSave);
+        }
+        
         onClose();
     };
 
 
     return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-4">
-            <div className="dark:bg-gray-800 bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl">
-                <h3 className="text-xl font-bold mb-6">{initialData ? 'Edit' : 'Add New'} Employee</h3>
-                {errorMessage && <div className="bg-red-500/20 text-red-300 p-3 rounded-md mb-4 text-sm">{errorMessage}</div>}
-                <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                    {/* ... other input fields ... */}
-                     <div><label className="text-xs dark:text-gray-400 text-gray-500">E.NO</label><input type="text" name="eNo" value={formData.eNo} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" /></div>
-                    <div>
-                        <label className="text-xs dark:text-gray-400 text-gray-500">Gender</label>
-                        <select name="gender" value={formData.gender || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300">
-                            <option value="">Select...</option>
-                            <option value="M">Male</option>
-                            <option value="F">Female</option>
-                        </select>
-                    </div>
-                    <div className="lg:col-span-2"><label className="text-xs dark:text-gray-400 text-gray-500">Full Name</label><input type="text" name="fullName" value={formData.fullName} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" style={{ textTransform: 'capitalize' }} /></div>
-                    <div><label className="text-xs dark:text-gray-400 text-gray-500">Nationality</label><input type="text" name="nationality" value={formData.nationality} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" style={{ textTransform: 'capitalize' }} /></div>
-                    <div><label className="text-xs dark:text-gray-400 text-gray-500">Profession</label><input type="text" name="profession" value={formData.profession} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" style={{ textTransform: 'capitalize' }} /></div>
-                    <div><label className="text-xs dark:text-gray-400 text-gray-500">QID</label><input type="text" name="qid" value={formData.qid} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" /></div>
-                    <div><label className="text-xs dark:text-gray-400 text-gray-500">QID Expiry</label><DateInput value={formData.qidExpiry} onChange={val => setFormData(p => ({ ...p, qidExpiry: val }))} /></div>
-                    <div><label className="text-xs dark:text-gray-400 text-gray-500">Contact</label><input type="text" name="contact1" value={formData.contact1} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" /></div>
-                    <div>
-                        <label className="text-xs dark:text-gray-400 text-gray-500">Status</label>
-                        <select name="status" value={formData.status} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300">
-                            <option>Active</option>
-                            {/* Removed New Recruitment option */}
-                            <option>Vacation</option>
-                            <option>Changed</option>
-                            <option>Cancelled</option>
-                            <option>Case Filed</option>
-                            <option>Waiting for Join</option>
-                            <option>SC Requested</option>
-                            <option>Others</option>
-                        </select>
-                    </div>
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-4 overflow-y-auto">
+            <div className="dark:bg-gray-800 bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8">
+                {/* Header */}
+                <div className="flex justify-between items-center px-6 py-4 border-b dark:border-gray-700 border-gray-300">
+                    <h3 className="text-xl font-bold text-cyan-400">{initialData ? 'Edit Employee' : 'Add New Employee'}</h3>
+                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-700 transition-colors"><X size={20}/></button>
                 </div>
-                <div className="mt-6 pt-4 border-t dark:border-gray-700 border-gray-300">
-                    <h4 className="text-sm font-semibold mb-3 dark:text-gray-300 text-gray-700">Documents</h4>
-                    {!initialData?.id && (
-                        <div className="bg-yellow-500/20 text-yellow-300 p-2 rounded-md mb-3 text-xs">
-                            Save the employee first to upload documents
-                        </div>
-                    )}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        {[
-                            { type: 'idCopy', urlField: 'idCopyUrl', label: 'ID Copy', icon: <IdCard size={16} /> },
-                            { type: 'ppCopy', urlField: 'ppCopyUrl', label: 'Passport', icon: <BookUser size={16} /> },
-                            { type: 'lcCopy', urlField: 'lcCopyUrl', label: 'Labour Card', icon: <FileText size={16} /> },
-                            { type: 'settle', urlField: 'settleDocUrl', label: 'Settlement', icon: <HandCoins size={16} /> }
-                        ].map(({ type, urlField, label, icon }) => {
-                            const state = docUploadStates[type] || { uploading: false, error: null };
-                            const hasDoc = !!formData[urlField];
-                            const inputId = `modal_file_${type}`;
-                            return (
-                                <div key={type} className="dark:bg-gray-700 bg-gray-100 p-3 rounded-md border dark:border-gray-600 border-gray-300">
-                                    <div className="flex items-center justify-between mb-2">
-                                        <div className="flex items-center space-x-2 text-xs font-semibold dark:text-gray-300 text-gray-700">
-                                            {icon}
-                                            <span>{label}</span>
-                                        </div>
-                                        {hasDoc && (
-                                            <span className="text-[10px] px-2 py-0.5 bg-green-500/20 text-green-400 rounded-full">✓ Uploaded</span>
-                                        )}
-                                    </div>
-                                    <div className="flex items-center space-x-2">
-                                        {state.uploading ? (
-                                            <div className="w-full flex items-center justify-center py-2">
-                                                <Loader2 size={20} className="animate-spin text-cyan-400" />
-                                            </div>
-                                        ) : (
-                                            <>
-                                                <label 
-                                                    htmlFor={inputId}
-                                                    className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-md text-xs font-medium cursor-pointer transition-colors ${
-                                                        !initialData?.id 
-                                                            ? 'bg-gray-500 text-gray-300 cursor-not-allowed' 
-                                                            : hasDoc
-                                                                ? 'dark:bg-yellow-600 bg-yellow-500 hover:bg-yellow-600 dark:hover:bg-yellow-700 text-white'
-                                                                : 'dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 dark:hover:bg-cyan-700 text-white'
-                                                    }`}
-                                                    title={!initialData?.id ? 'Save employee first' : hasDoc ? 'Replace document' : 'Upload document'}
-                                                >
-                                                    <FileUp size={14} />
-                                                    <span>{hasDoc ? 'Replace' : 'Upload'}</span>
-                                                </label>
-                                                <input 
-                                                    id={inputId}
-                                                    type="file" 
-                                                    accept="application/pdf" 
-                                                    className="hidden" 
-                                                    onChange={(e) => {
-                                                        const file = e.target.files[0];
-                                                        if (file) handleDocumentUpload(type, file);
-                                                        e.target.value = '';
-                                                    }}
-                                                    disabled={!initialData?.id}
-                                                />
-                                                {hasDoc && (
-                                                    <>
-                                                        <button
-                                                            onClick={() => setDocPreview({ url: formData[urlField], type: label, employeeName: formData.fullName })}
-                                                            className="p-2 dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 dark:hover:bg-cyan-700 rounded-md transition-colors"
-                                                            title="View document"
-                                                        >
-                                                            <Eye size={14} />
-                                                        </button>
-                                                        <button
-                                                            onClick={() => handleDocumentDelete(type, urlField, `${type}StoragePath`)}
-                                                            className="p-2 dark:bg-red-600 bg-red-500 hover:bg-red-600 dark:hover:bg-red-700 rounded-md transition-colors"
-                                                            title="Delete document"
-                                                        >
-                                                            <Trash2 size={14} />
-                                                        </button>
-                                                    </>
-                                                )}
-                                            </>
-                                        )}
-                                    </div>
-                                    {state.error && <div className="mt-1 text-[10px] text-red-400">{state.error}</div>}
+
+                {errorMessage && <div className="mx-6 mt-4 bg-red-500/20 text-red-300 p-3 rounded-md text-sm">{errorMessage}</div>}
+                
+                <div className="max-h-[75vh] overflow-y-auto px-6 py-4">
+                    {/* Two Column Layout */}
+                    <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
+                        {/* Left Column - Photo */}
+                        <div className="flex flex-col items-center">
+                            {formData.photoURL ? (
+                                <img 
+                                    src={formData.photoURL} 
+                                    alt={formData.fullName || 'Employee'} 
+                                    className="w-40 h-40 rounded-full object-cover border-4 dark:border-gray-600 border-gray-200 shadow-lg"
+                                    onError={(e) => { e.target.onerror = null; e.target.src="https://placehold.co/160x160/4A5568/E2E8F0?text=No+Photo"; }}
+                                />
+                            ) : (
+                                <div className="w-40 h-40 rounded-full bg-gradient-to-br from-gray-600 to-gray-700 flex items-center justify-center border-4 dark:border-gray-600 border-gray-200 shadow-lg">
+                                    <Users size={60} className="text-gray-400" />
                                 </div>
-                            );
-                        })}
+                            )}
+                            <input 
+                                type="file" 
+                                ref={photoInputRef} 
+                                onChange={handlePhotoChange} 
+                                className="hidden" 
+                                accept="image/png, image/jpeg, image/webp"
+                            />
+                            <button 
+                                onClick={() => photoInputRef.current?.click()} 
+                                disabled={isUploadingPhoto}
+                                className="mt-4 w-full px-3 py-2 bg-cyan-500 hover:bg-cyan-600 rounded-lg text-sm font-medium disabled:bg-gray-500 disabled:cursor-not-allowed transition-colors flex items-center justify-center space-x-2"
+                            >
+                                {isUploadingPhoto ? <Loader2 size={14} className="animate-spin" /> : <FileUp size={14} />}
+                                <span>{isUploadingPhoto ? 'Uploading...' : formData.photoURL ? 'Change' : 'Select Photo'}</span>
+                            </button>
+                            {formData.photoURL && !isUploadingPhoto && (
+                                <button 
+                                    onClick={() => {
+                                        if (!initialData?.id) {
+                                            // Remove pending photo
+                                            setPendingPhoto(null);
+                                            setFormData(prev => ({ ...prev, photoURL: null }));
+                                        } else {
+                                            handleRemovePhoto();
+                                        }
+                                    }} 
+                                    className="mt-2 w-full px-3 py-2 bg-red-500 hover:bg-red-600 rounded-lg text-sm font-medium transition-colors flex items-center justify-center space-x-2"
+                                >
+                                    <Trash2 size={14} />
+                                    <span>Remove</span>
+                                </button>
+                            )}
+                            {photoUploadError && <p className="text-red-400 text-xs mt-2 text-center">{photoUploadError}</p>}
+                            {!initialData?.id && pendingPhoto && <p className="text-xs mt-3 text-center dark:text-cyan-400 text-cyan-600 font-medium">✓ Ready to upload after save</p>}
+                        </div>
+
+                        {/* Right Column - Form Fields */}
+                        <div className="space-y-5">
+                            {/* Basic Info Section */}
+                            <div>
+                                <h4 className="text-sm font-semibold mb-3 dark:text-cyan-400 text-cyan-600 flex items-center space-x-2">
+                                    <IdCard size={14} />
+                                    <span>Basic Information</span>
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">E.NO</label>
+                                            <input type="text" name="eNo" value={formData.eNo} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Gender</label>
+                                            <select name="gender" value={formData.gender || ''} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none">
+                                                <option value="">Select...</option>
+                                                <option value="M">Male</option>
+                                                <option value="F">Female</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Status</label>
+                                            <select name="status" value={formData.status} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none">
+                                                <option>Active</option>
+                                                <option>Vacation</option>
+                                                <option>Changed</option>
+                                                <option>Cancelled</option>
+                                                <option>Case Filed</option>
+                                                <option>Waiting for Join</option>
+                                                <option>SC Requested</option>
+                                                <option>Others</option>
+                                            </select>
+                                        </div>
+                                        <div className="col-span-2 md:col-span-3">
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Full Name</label>
+                                            <input type="text" name="fullName" value={formData.fullName} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none capitalize" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Nationality</label>
+                                            <input type="text" name="nationality" value={formData.nationality} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none capitalize" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Profession</label>
+                                            <input type="text" name="profession" value={formData.profession} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none capitalize" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Contact</label>
+                                            <input type="text" name="contact1" value={formData.contact1} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">QID</label>
+                                            <input type="text" name="qid" value={formData.qid} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                        </div>
+                                        <div>
+                                            <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">QID Expiry</label>
+                                            <DateInput value={formData.qidExpiry} onChange={val => setFormData(p => ({ ...p, qidExpiry: val }))} />
+                                        </div>
+                                    </div>
+                                </div>
+
+                            {/* Extended Details Section */}
+                            <div>
+                                <h4 className="text-sm font-semibold mb-3 dark:text-cyan-400 text-cyan-600 flex items-center space-x-2">
+                                    <FileText size={14} />
+                                    <span>Extended Details</span>
+                                </h4>
+                                <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Join Date</label>
+                                        <DateInput value={formData.joinDate} onChange={val => setFormData(p => ({ ...p, joinDate: val }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Departed Date</label>
+                                        <DateInput value={formData.departedDate} onChange={val => setFormData(p => ({ ...p, departedDate: val }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Passport</label>
+                                        <input type="text" name="passport" value={formData.passport} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Passport Expiry</label>
+                                        <DateInput value={formData.passportExpiry} onChange={val => setFormData(p => ({ ...p, passportExpiry: val }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Labour Contract</label>
+                                        <input type="text" name="labourContract" value={formData.labourContract} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Labour Contract Expiry</label>
+                                        <DateInput value={formData.labourContractExpiry} onChange={val => setFormData(p => ({ ...p, labourContractExpiry: val }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Pay Card</label>
+                                        <input type="text" name="payCard" value={formData.payCard} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Pay Card PIN</label>
+                                        <input type="text" name="payCardPin" value={formData.payCardPin} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Pay Card Expiry</label>
+                                        <DateInput value={formData.payCardExpiry} onChange={val => setFormData(p => ({ ...p, payCardExpiry: val }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Contact 2</label>
+                                        <input type="text" name="contact2" value={formData.contact2} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Contact 3</label>
+                                        <input type="text" name="contact3" value={formData.contact3} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none" />
+                                    </div>
+                                    <div className="col-span-2 md:col-span-3">
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Address</label>
+                                        <textarea name="address" value={formData.address} onChange={handleChange} rows="2" className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none resize-none" />
+                                    </div>
+                                    <div className="col-span-2 md:col-span-3">
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Notes</label>
+                                        <textarea name="notes" value={formData.notes} onChange={handleChange} rows="2" className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none resize-none" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Documents Section */}
+                            <div>
+                                <h4 className="text-sm font-semibold mb-3 dark:text-cyan-400 text-cyan-600 flex items-center space-x-2">
+                                    <FileUp size={14} />
+                                    <span>Documents</span>
+                                </h4>
+                                {!initialData?.id && Object.keys(pendingDocs).length > 0 && (
+                                    <div className="bg-cyan-500/10 border border-cyan-500/30 text-cyan-400 px-3 py-2 rounded-lg mb-3 text-xs flex items-center space-x-2">
+                                        <span className="font-medium">{Object.keys(pendingDocs).length} document(s) ready to upload after save</span>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                                    {[
+                                        { type: 'idCopy', urlField: 'idCopyUrl', label: 'ID Copy', icon: <IdCard size={14} /> },
+                                        { type: 'ppCopy', urlField: 'ppCopyUrl', label: 'Passport', icon: <BookUser size={14} /> },
+                                        { type: 'lcCopy', urlField: 'lcCopyUrl', label: 'Labour Card', icon: <FileText size={14} /> },
+                                        { type: 'settle', urlField: 'settleDocUrl', label: 'Settlement', icon: <HandCoins size={14} /> }
+                                    ].map(({ type, urlField, label, icon }) => {
+                                        const state = docUploadStates[type] || { uploading: false, error: null };
+                                        const hasDoc = !!formData[urlField];
+                                        const hasPending = !!pendingDocs[type];
+                                        const inputId = `modal_file_${type}`;
+                                        return (
+                                            <div key={type} className="dark:bg-gray-700/50 bg-gray-50 p-2.5 rounded-lg border dark:border-gray-600 border-gray-200">
+                                                <div className="flex items-center justify-between mb-2">
+                                                    <div className="flex items-center space-x-1.5 text-xs font-medium dark:text-gray-300 text-gray-700">
+                                                        {icon}
+                                                        <span>{label}</span>
+                                                    </div>
+                                                    {hasDoc && <span className="text-[10px] px-1.5 py-0.5 bg-green-500/20 text-green-400 rounded">✓</span>}
+                                                    {!hasDoc && hasPending && <span className="text-[10px] px-1.5 py-0.5 bg-cyan-500/20 text-cyan-400 rounded">Ready</span>}
+                                                </div>
+                                                <div className="flex items-center space-x-1.5">
+                                                    {state.uploading ? (
+                                                        <div className="w-full flex items-center justify-center py-2">
+                                                            <Loader2 size={16} className="animate-spin text-cyan-400" />
+                                                        </div>
+                                                    ) : (
+                                                        <>
+                                                            <label 
+                                                                htmlFor={inputId}
+                                                                className={`flex-1 flex items-center justify-center space-x-1 px-2 py-1.5 rounded text-[11px] font-medium cursor-pointer transition-colors ${
+                                                                    hasDoc
+                                                                        ? 'dark:bg-yellow-600 bg-yellow-500 hover:bg-yellow-600 text-white'
+                                                                        : hasPending
+                                                                            ? 'dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 text-white'
+                                                                            : 'dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 text-white'
+                                                                }`}
+                                                            >
+                                                                <FileUp size={12} />
+                                                                <span>{hasDoc ? 'Replace' : hasPending ? 'Change' : 'Select'}</span>
+                                                            </label>
+                                                            <input 
+                                                                id={inputId}
+                                                                type="file" 
+                                                                accept="application/pdf" 
+                                                                className="hidden" 
+                                                                onChange={(e) => {
+                                                                    const file = e.target.files[0];
+                                                                    if (file) handleDocumentUpload(type, file);
+                                                                    e.target.value = '';
+                                                                }}
+                                                            />
+                                                            {hasDoc && (
+                                                                <>
+                                                                    <button
+                                                                        onClick={() => setDocPreview({ url: formData[urlField], type: label, employeeName: formData.fullName })}
+                                                                        className="p-1.5 dark:bg-cyan-600 bg-cyan-500 hover:bg-cyan-600 rounded transition-colors"
+                                                                        title="View"
+                                                                    >
+                                                                        <Eye size={12} />
+                                                                    </button>
+                                                                    <button
+                                                                        onClick={() => handleDocumentDelete(type, urlField, `${type}StoragePath`)}
+                                                                        className="p-1.5 dark:bg-red-600 bg-red-500 hover:bg-red-600 rounded transition-colors"
+                                                                        title="Delete"
+                                                                    >
+                                                                        <Trash2 size={12} />
+                                                                    </button>
+                                                                </>
+                                                            )}
+                                                            {!hasDoc && hasPending && (
+                                                                <button
+                                                                    onClick={() => {
+                                                                        const newPending = {...pendingDocs};
+                                                                        delete newPending[type];
+                                                                        setPendingDocs(newPending);
+                                                                    }}
+                                                                    className="p-1.5 dark:bg-red-600 bg-red-500 hover:bg-red-600 rounded transition-colors"
+                                                                    title="Remove"
+                                                                >
+                                                                    <X size={12} />
+                                                                </button>
+                                                            )}
+                                                        </>
+                                                    )}
+                                                </div>
+                                                {hasPending && <div className="mt-1 text-[10px] dark:text-cyan-400 text-cyan-600 truncate" title={pendingDocs[type]?.name}>{pendingDocs[type]?.name}</div>}
+                                                {state.error && <div className="mt-1 text-[10px] text-red-400">{state.error}</div>}
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
                     </div>
-                </div>
-                <div className="flex justify-end space-x-2 mt-6">
-                    <button onClick={onClose} className="px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-700">Cancel</button>
-                    <button onClick={handleSave} className="px-4 py-2 bg-cyan-500 rounded-md hover:bg-cyan-600">Save Employee</button>
+
+                    {/* Footer Buttons */}
+                    <div className="flex justify-end space-x-3 pt-4 mt-5 border-t dark:border-gray-700 border-gray-200">
+                        <button 
+                            onClick={onClose} 
+                            className="px-5 py-2 bg-gray-600 hover:bg-gray-700 rounded-lg text-sm font-medium transition-colors"
+                        >
+                            Cancel
+                        </button>
+                        <button 
+                            onClick={handleSave} 
+                            className="px-5 py-2 bg-cyan-500 hover:bg-cyan-600 rounded-lg text-sm font-medium transition-colors flex items-center space-x-2"
+                        >
+                            <Save size={16} />
+                            <span>Save Employee</span>
+                        </button>
+                    </div>
                 </div>
             </div>
             
@@ -6001,205 +7494,6 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
             )}
         </div>
     );
-};
-
-const EmployeeDetailModal = ({ employee, userId, appId, collectionPath, onClose, setConfirmAction }) => {
-    const [details, setDetails] = useState({
-        joinDate: formatDate(employee.joinDate),
-        departedDate: formatDate(employee.departedDate),
-        passport: employee.passport || '',
-        passportExpiry: formatDate(employee.passportExpiry),
-        payCard: employee.payCard || '',
-        payCardPin: employee.payCardPin || '',
-        payCardExpiry: formatDate(employee.payCardExpiry),
-        labourContract: employee.labourContract || '',
-        labourContractExpiry: formatDate(employee.labourContractExpiry),
-        address: employee.address || '',
-        contact2: employee.contact2 || '',
-        contact3: employee.contact3 || '',
-        notes: employee.notes || '',
-    });
-    const employeeDocRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/${collectionPath}`, employee.id), [appId, userId, collectionPath, employee.id]);
-    const fileInputRef = useRef(null);
-    const [isUploading, setIsUploading] = useState(false);
-    const [uploadError, setUploadError] = useState(null);
-
-    const handleChange = (e) => {
-        const {name, value} = e.target;
-        setDetails(prev => ({...prev, [name]: value}));
-    };
-    
-    const handleFileChange = async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        if (file.size > 5 * 1024 * 1024) { // 5MB limit
-            setUploadError("File is too large. Please select an image under 5MB.");
-            return;
-        }
-
-        setIsUploading(true);
-        setUploadError(null);
-
-        try {
-            // 1. Delete old photo if it exists
-            if (employee.storagePath) {
-                try {
-                    const oldStorageRef = ref(storage, employee.storagePath);
-                    await deleteObject(oldStorageRef);
-                } catch (deleteErr) {
-                    console.warn("Could not delete old photo:", deleteErr); // Don't block upload if old delete fails
-                }
-            }
-
-            // 2. Upload new photo
-            const storagePath = `employee_photos/${collectionPath}/${employee.id}/${Date.now()}_${file.name}`;
-            const newStorageRef = ref(storage, storagePath);
-            await uploadBytes(newStorageRef, file);
-            const downloadURL = await getDownloadURL(newStorageRef);
-
-            // 3. Update Firestore
-            await updateDoc(employeeDocRef, {
-                photoURL: downloadURL,
-                storagePath: storagePath
-            });
-
-            // Refresh employee data in modal (onClose will trigger re-fetch in parent, but let's just close)
-            onClose(); 
-
-        } catch (err) {
-            console.error("Error uploading photo:", err);
-            setUploadError("Upload failed. Please try again.");
-        } finally {
-            setIsUploading(false);
-            if (fileInputRef.current) fileInputRef.current.value = "";
-        }
-    };
-
-    const handleRemovePhoto = async () => {
-        if (!employee.storagePath) return;
-
-        setConfirmAction({
-            title: "Remove Profile Photo",
-            message: `Are you sure you want to remove the profile photo for ${employee.fullName}?`,
-            confirmText: "Remove",
-            type: "delete",
-            action: async () => {
-                try {
-                    const storageRef = ref(storage, employee.storagePath);
-                    await deleteObject(storageRef);
-                    
-                    await updateDoc(employeeDocRef, {
-                        photoURL: null,
-                        storagePath: null
-                    });
-                    
-                    onClose(); // Close modal to reflect change
-                } catch (err) {
-                    console.error("Error removing photo:", err);
-                    setUploadError("Could not remove photo. Please try again.");
-                }
-            }
-        });
-    };
-    
-    const handleSave = async () => {
-        const dataToSave = {
-            ...details,
-            joinDate: parseDateForFirestore(details.joinDate),
-            departedDate: parseDateForFirestore(details.departedDate),
-            passportExpiry: parseDateForFirestore(details.passportExpiry),
-            payCardExpiry: parseDateForFirestore(details.payCardExpiry),
-            labourContractExpiry: parseDateForFirestore(details.labourContractExpiry),
-        };
-        await updateDoc(employeeDocRef, dataToSave);
-        onClose();
-    };
-
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[100] p-4">
-             <div className="dark:bg-gray-800 bg-white p-6 rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
-                <div className="flex justify-between items-center mb-4 flex-shrink-0">
-                    <h3 className="text-2xl font-bold text-cyan-400">{employee.fullName} - Details</h3>
-                    <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-700"><X size={24}/></button>
-                </div>
-                <div className="overflow-y-auto">
-                    <div className="grid grid-cols-1 md:grid-cols-[1fr_3fr] gap-6 mb-6">
-                        {/* Photo Section */}
-                        <div className="flex flex-col items-center">
-                            {employee.photoURL ? (
-                                <img 
-                                    src={employee.photoURL} 
-                                    alt={employee.fullName} 
-                                    className="w-32 h-32 rounded-full object-cover border-4 dark:border-gray-700 border-gray-300"
-                                    onError={(e) => { e.target.onerror = null; e.target.src="https://placehold.co/128x128/4A5568/E2E8F0?text=Error"; }}
-                                />
-                            ) : (
-                                <div className="w-32 h-32 rounded-full bg-gray-600 flex items-center justify-center border-4 dark:border-gray-700 border-gray-300">
-                                    <Users size={48} className="text-gray-400" />
-                                </div>
-                            )}
-                            <input 
-                                type="file" 
-                                ref={fileInputRef} 
-                                onChange={handleFileChange} 
-                                className="hidden" 
-                                accept="image/png, image/jpeg, image/webp"
-                            />
-                            <button 
-                                onClick={() => fileInputRef.current?.click()} 
-                                disabled={isUploading}
-                                className="mt-4 w-full flex items-center justify-center space-x-2 px-3 py-1.5 bg-cyan-500 rounded-md hover:bg-cyan-600 text-sm disabled:bg-gray-500"
-                            >
-                                {isUploading ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16} />}
-                                <span>{isUploading ? 'Uploading...' : 'Upload Photo'}</span>
-                            </button>
-                            {employee.photoURL && (
-                                <button 
-                                    onClick={handleRemovePhoto} 
-                                    disabled={isUploading}
-                                    className="mt-2 w-full flex items-center justify-center space-x-2 px-3 py-1.5 bg-red-500 rounded-md hover:bg-red-600 text-sm disabled:bg-gray-500"
-                                >
-                                    <Trash2 size={16} />
-                                    <span>Remove Photo</span>
-                                </button>
-                            )}
-                            {uploadError && <p className="text-red-400 text-xs mt-2 text-center">{uploadError}</p>}
-                        </div>
-
-                        {/* Details Grid */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                            <div><label className="text-sm dark:text-gray-400 text-gray-500">Join Date</label><DateInput value={details.joinDate} onChange={val => setDetails(p=>({...p, joinDate: val}))} /></div>
-                            <div><label className="text-sm dark:text-gray-400 text-gray-500">Departed Date</label><DateInput value={details.departedDate} onChange={val => setDetails(p=>({...p, departedDate: val}))} /></div>
-                            <div><label className="text-sm dark:text-gray-400 text-gray-500">Passport</label><input type="text" name="passport" value={details.passport} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                            <div><label className="text-sm dark:text-gray-400 text-gray-500">Passport Expiry</label><DateInput value={details.passportExpiry} onChange={val => setDetails(p=>({...p, passportExpiry: val}))} /></div>
-                            <div><label className="text-sm dark:text-gray-400 text-gray-500">Labour Contract</label><input type="text" name="labourContract" value={details.labourContract} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                            <div><label className="text-sm dark:text-gray-400 text-gray-500">Labour Contract Expiry</label><DateInput value={details.labourContractExpiry} onChange={val => setDetails(p=>({...p, labourContractExpiry: val}))} /></div>
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
-                         <div><label className="text-sm dark:text-gray-400 text-gray-500">Pay Card</label><input type="text" name="payCard" value={details.payCard} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                         <div><label className="text-sm dark:text-gray-400 text-gray-500">Pay Card PIN</label><input type="text" name="payCardPin" value={details.payCardPin} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                         <div><label className="text-sm dark:text-gray-400 text-gray-500">Pay Card Expiry</label><DateInput value={details.payCardExpiry} onChange={val => setDetails(p=>({...p, payCardExpiry: val}))} /></div>
-                    </div>
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                        <div><label className="text-sm dark:text-gray-400 text-gray-500">Labour Contract</label><input type="text" name="labourContract" value={details.labourContract} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                        <div><label className="text-sm dark:text-gray-400 text-gray-500">Labour Contract Expiry</label><DateInput value={details.labourContractExpiry} onChange={val => setDetails(p=>({...p, labourContractExpiry: val}))} /></div>
-                    </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
-                         <div><label className="text-sm dark:text-gray-400 text-gray-500">Contact 2</label><input type="text" name="contact2" value={details.contact2} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                         <div><label className="text-sm dark:text-gray-400 text-gray-500">Contact 3</label><input type="text" name="contact3" value={details.contact3} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300"/></div>
-                    </div>
-                     <div className="mb-6"><label className="text-sm dark:text-gray-400 text-gray-500">Address</label><textarea name="address" value={details.address} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md h-24 border dark:border-gray-600 border-gray-300"/></div>
-                     <div className="mb-6"><label className="text-sm dark:text-gray-400 text-gray-500">Notes</label><textarea name="notes" value={details.notes} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md h-24 border dark:border-gray-600 border-gray-300"/></div>
-                </div>
-                <div className="flex justify-end space-x-2 mt-6 flex-shrink-0">
-                    <button onClick={onClose} className="px-6 py-2 bg-gray-600 rounded-md">Cancel</button>
-                    <button onClick={handleSave} className="px-6 py-2 bg-cyan-500 rounded-md">Save Details</button>
-                </div>
-             </div>
-        </div>
-    )
 };
 
 const PayCardModal = ({ isOpen, onClose, employees }) => {
@@ -6293,6 +7587,13 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
         setTimeout(() => setCopiedId(null), 1500);
     };
 
+    // Helper to get document status counts for header coloring
+    const getDocumentStats = (urlField) => {
+        const uploaded = employees.filter(e => e[urlField]).length;
+        const total = employees.length;
+        return { uploaded, total, hasUploaded: uploaded > 0, allUploaded: uploaded === total };
+    };
+
     const getStatusStyle = (status) => {
         switch (status) {
             case 'Active':
@@ -6351,38 +7652,52 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
         const key = `${employee.id}_${type}`;
         const state = docUploadStates[key] || { uploading: false, error: null };
         const hasDoc = !!employee[urlField];
-        const baseClass = `p-3 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
+        const baseClass = `p-2 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
         const inputId = `file_input_${employee.id}_${type}`;
         const onFileChange = (e) => {
             const file = e.target.files[0];
             if (file) onUploadDocument(employee.id, type, file);
             e.target.value = '';
         };
+        
+        // Get appropriate icon based on document type
+        const getDocIcon = () => {
+            switch(type) {
+                case 'idCopy': return <IdCard size={18} />;
+                case 'ppCopy': return <BookUser size={18} />;
+                case 'lcCopy': return <FileText size={18} />;
+                case 'settle': return <HandCoins size={18} />;
+                default: return <FileUp size={18} />;
+            }
+        };
+        
         return (
             <td className={baseClass}>
-                <div className="flex items-center justify-center space-x-1">
-                    {state.uploading ? (
-                        <Loader2 size={16} className="animate-spin text-cyan-400" title={`Uploading ${label}...`} />
-                    ) : hasDoc ? (
-                        <>
+                {state.uploading ? (
+                    <div className="flex items-center justify-center">
+                        <Loader2 size={18} className="animate-spin text-cyan-400" title={`Uploading ${label}...`} />
+                    </div>
+                ) : (
+                    <div className="flex items-center justify-center space-x-1">
+                        <label 
+                            className={`flex items-center justify-center p-1 cursor-pointer transition-colors ${hasDoc ? 'text-green-400' : 'text-red-400 hover:text-red-300'}`}
+                            title={hasDoc ? `View/Replace ${label} document` : `Upload ${label} document`} 
+                            htmlFor={inputId}
+                        >
+                            {getDocIcon()}
+                        </label>
+                        {hasDoc && (
                             <button
                                 onClick={() => onOpenDocPreview(employee[urlField], label, employee.fullName)}
-                                className="p-1 hover:text-cyan-400"
+                                className="p-1 hover:text-cyan-400 transition-colors"
                                 title={`View ${label} document`}
                             >
-                                <Eye size={16} />
+                                <Eye size={14} />
                             </button>
-                            <label className="p-1 hover:text-yellow-400 cursor-pointer" title={`Replace ${label} document`} htmlFor={inputId}>
-                                <FileUp size={16} />
-                            </label>
-                        </>
-                    ) : (
-                        <label className="p-1 hover:text-green-400 cursor-pointer" title={`Upload ${label} document`} htmlFor={inputId}>
-                            <FileUp size={16} />
-                        </label>
-                    )}
-                    <input id={inputId} type="file" accept="application/pdf" className="hidden" onChange={onFileChange} />
-                </div>
+                        )}
+                    </div>
+                )}
+                <input id={inputId} type="file" accept="application/pdf" className="hidden" onChange={onFileChange} />
                 {state.error && <div className="mt-1 text-[10px] text-red-400">{state.error}</div>}
             </td>
         );
@@ -6419,10 +7734,26 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                             <EditableTH initialValue={headers.passport} onSave={(val) => onHeaderSave('passport', val)} className="w-24" />
                             <EditableTH initialValue={headers.labourContract} onSave={(val) => onHeaderSave('labourContract', val)} className="w-24" />
                             <EditableTH initialValue={headers.payCard} onSave={(val) => onHeaderSave('payCard', val)} className="w-24" />
-                            <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center" title="ID Copy"><IdCard size={16}/></div></th>
-                            <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center" title="Passport Copy"><BookUser size={16}/></div></th>
-                            <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center" title="Contract Copy"><FileText size={16}/></div></th>
-                            <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center" title="Settled"><HandCoins size={16}/></div></th>
+                            <th className="w-24 p-0 font-semibold text-center">
+                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('idCopyUrl').allUploaded ? 'text-green-400' : getDocumentStats('idCopyUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="ID Copy">
+                                    <IdCard size={16}/>
+                                </div>
+                            </th>
+                            <th className="w-24 p-0 font-semibold text-center">
+                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('ppCopyUrl').allUploaded ? 'text-green-400' : getDocumentStats('ppCopyUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="Passport Copy">
+                                    <BookUser size={16}/>
+                                </div>
+                            </th>
+                            <th className="w-24 p-0 font-semibold text-center">
+                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('lcCopyUrl').allUploaded ? 'text-green-400' : getDocumentStats('lcCopyUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="Contract Copy">
+                                    <FileText size={16}/>
+                                </div>
+                            </th>
+                            <th className="w-32 p-0 font-semibold text-center">
+                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('settleDocUrl').allUploaded ? 'text-green-400' : getDocumentStats('settleDocUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="Settlement">
+                                    <HandCoins size={16}/>
+                                </div>
+                            </th>
                             <th className="w-20 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
                         </tr>
                     </thead>
@@ -6476,7 +7807,7 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                             )}
                                             {/* --- END OF PHOTO/PLACEHOLDER --- */}
                                             
-                                            <button onClick={() => onViewDetails(e)} className="hover:text-cyan-400 text-left w-full truncate">{e.fullName}</button>
+                                            <span className="text-left w-full truncate">{e.fullName}</span>
                                             <button 
                                                 onClick={() => handleCopy(e.fullName, e.id)} 
                                                 className="p-1 opacity-0 group-hover/row:opacity-100 hover:text-cyan-400 ml-2 flex-shrink-0"
@@ -6541,7 +7872,6 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
     const [employees, setEmployees] = useState([]);
     const [showModal, setShowModal] = useState(false);
     const [editingEmployee, setEditingEmployee] = useState(null);
-    const [detailEmployee, setDetailEmployee] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
     const [nationalityFilter, setNationalityFilter] = useState('');
     const [professionFilter, setProfessionFilter] = useState('');
@@ -6776,13 +8106,17 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
 
     const handleCloseDocPreview = () => setDocPreview(null);
 
-    const handleSave = async (employeeData) => {
+    const handleSave = async (employeeData, uploadCallback) => {
         if (editingEmployee) {
             const { id, ...dataToSave } = employeeData;
             await updateDoc(doc(employeesRef, id), dataToSave);
         } else {
             // New employee creation
-            await addDoc(employeesRef, employeeData);
+            const docRef = await addDoc(employeesRef, employeeData);
+            // If there's a callback to upload pending documents, call it
+            if (uploadCallback && typeof uploadCallback === 'function') {
+                await uploadCallback(docRef.id);
+            }
         }
         setShowModal(false);
         setEditingEmployee(null);
@@ -7316,32 +8650,16 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                         <button onClick={() => setShowPayCardModal(true)} title="View Pay Cards" className="p-2.5 dark:bg-gray-600 bg-gray-200 text-sm rounded-md dark:hover:bg-gray-500 hover:bg-gray-300 no-print border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
                             <IdCard size={16}/>
                         </button>
-                        <button onClick={handleDownloadEmployees} title="Download Report CSV" className="p-2.5 dark:bg-gray-600 bg-gray-200 text-sm rounded-md dark:hover:bg-gray-500 hover:bg-gray-300 no-print border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                            <Download size={16}/>
-                        </button>
                         {/* New Export Excel Button */}
                         <button 
                             onClick={handleExportExcelReport} 
-                            disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
+                            disabled={isExportingExcel || isClearingData} 
                             title="Export Excel Report" 
                             className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
                         >
                             {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
                         </button>
-                        <button onClick={handleExportJson} disabled={isExporting} title="Export to JSON" className="p-2.5 dark:bg-green-600 bg-gray-200 text-sm rounded-md dark:hover:bg-green-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                        </button>
-                        <button onClick={triggerImport} disabled={isImporting} title="Import from JSON" className="p-2.5 dark:bg-blue-600 bg-gray-200 text-sm rounded-md dark:hover:bg-blue-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                        </button>
-                         <input
-                            type="file"
-                            ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
-                            className="hidden"
-                            accept=".json,application/json"
-                        />
-                        <button onClick={handleClearAllEmployees} disabled={isClearingData || isImporting} title="Clear All Employee Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                        <button onClick={handleClearAllEmployees} disabled={isClearingData || isExportingExcel} title="Clear All Employee Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                             {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                         </button>
                         {tickedEmployees.size > 0 && (
@@ -7397,7 +8715,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                             employees={currentViewData.pinned}
                                             onEdit={handleEdit}
                                             onDelete={onDeleteRequest}
-                                            onViewDetails={setDetailEmployee}
+                                            onViewDetails={handleEdit}
                                             headers={headers}
                                             onHeaderSave={handleHeaderSave}
                                             onPayCardCancelRequest={handlePayCardCancelRequest}
@@ -7421,7 +8739,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                             employees={currentViewData.main}
                                             onEdit={handleEdit}
                                             onDelete={onDeleteRequest}
-                                            onViewDetails={setDetailEmployee}
+                                            onViewDetails={handleEdit}
                                             headers={headers}
                                             onHeaderSave={handleHeaderSave}
                                             onPayCardCancelRequest={handlePayCardCancelRequest}
@@ -7455,8 +8773,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
 
             <PayCardModal isOpen={showPayCardModal} onClose={() => setShowPayCardModal(false)} employees={payCardEmployees} />
 
-            {showModal && <AddEditEmployeeModal onSave={handleSave} initialData={editingEmployee} employees={employees} onClose={() => setShowModal(false)} userId={userId} appId={appId} collectionPath={collectionPath} />}
-            {detailEmployee && <EmployeeDetailModal employee={detailEmployee} userId={userId} appId={appId} collectionPath={collectionPath} onClose={() => setDetailEmployee(null)} setConfirmAction={setConfirmAction} />}
+            {showModal && <AddEditEmployeeModal onSave={handleSave} initialData={editingEmployee} employees={employees} onClose={() => { setShowModal(false); setEditingEmployee(null); }} userId={userId} appId={appId} collectionPath={collectionPath} setConfirmAction={setConfirmAction} />}
             
             {docPreview && (
                 <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={handleCloseDocPreview}>
@@ -7481,6 +8798,8 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
 
 const ManageSubCategoriesModal = ({ userId, appId, onClose, initialCategories, setConfirmAction }) => {
     const [newSubCategory, setNewSubCategory] = useState({}); // e.g., { Income: 'New Income', Expenses: 'New Expense' }
+    const [newMainCategory, setNewMainCategory] = useState('');
+    const [localCategories, setLocalCategories] = useState(initialCategories);
 
     const settingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/ledgerSettings/defaultSubCategories`), [appId, userId]);
 
@@ -7493,6 +8812,51 @@ const ManageSubCategoriesModal = ({ userId, appId, onClose, initialCategories, s
         });
 
         setNewSubCategory(prev => ({ ...prev, [mainCategory]: '' }));
+    };
+
+    const handleAddMainCategory = async () => {
+        const valueToAdd = newMainCategory.trim();
+        if (!valueToAdd) return;
+        
+        const capitalizedName = capitalizeWords(valueToAdd);
+        if (localCategories[capitalizedName]) {
+            alert('This main category already exists.');
+            return;
+        }
+
+        try {
+            await setDoc(settingsRef, {
+                [capitalizedName]: []
+            }, { merge: true });
+            
+            setLocalCategories(prev => ({ ...prev, [capitalizedName]: [] }));
+            setNewMainCategory('');
+        } catch (error) {
+            console.error('Failed to add main category:', error);
+            alert('Failed to add main category. Please try again.');
+        }
+    };
+
+    const handleDeleteMainCategoryRequest = (mainCategory) => {
+        setConfirmAction({
+            title: 'Confirm Delete Main Category',
+            message: `Are you sure you want to delete the main category "${mainCategory}" and all its sub-categories? This cannot be undone.`,
+            confirmText: 'Delete',
+            type: 'delete',
+            action: async () => {
+                try {
+                    await updateDoc(settingsRef, {
+                        [mainCategory]: arrayRemove(...(localCategories[mainCategory] || []))
+                    });
+                    
+                    const newData = { ...localCategories };
+                    delete newData[mainCategory];
+                    setLocalCategories(newData);
+                } catch (error) {
+                    console.error('Failed to delete main category:', error);
+                }
+            }
+        });
     };
 
     const handleDeleteRequest = (mainCategory, subCategory) => {
@@ -7515,18 +8879,54 @@ const ManageSubCategoriesModal = ({ userId, appId, onClose, initialCategories, s
 
     return (
          <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[101] p-4">
-            <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[80vh] flex flex-col">
+            <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-5xl max-h-[85vh] flex flex-col">
                 <div className="flex justify-between items-center mb-4 flex-shrink-0">
-                    <h3 className="text-xl font-bold">Manage Default Sub-Categories</h3>
+                    <h3 className="text-xl font-bold">Manage Chart of Accounts</h3>
                     <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-700"><X size={20}/></button>
                 </div>
-                <div className="overflow-y-auto">
+
+                {/* Add Main Category Section */}
+                <div className="bg-gradient-to-r from-cyan-900/30 to-blue-900/30 p-4 rounded-lg mb-4 flex-shrink-0 border border-cyan-500/20">
+                    <h4 className="font-semibold text-cyan-400 mb-2 flex items-center gap-2">
+                        <BookOpen size={18} />
+                        Add New Main Category
+                    </h4>
+                    <div className="flex items-center gap-2">
+                        <input
+                            type="text"
+                            placeholder="Enter main category name (e.g., Capital)"
+                            value={newMainCategory}
+                            onChange={(e) => setNewMainCategory(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && handleAddMainCategory()}
+                            className="flex-grow p-2 bg-gray-700 rounded-md text-sm"
+                            style={{textTransform: 'capitalize'}}
+                        />
+                        <button 
+                            onClick={handleAddMainCategory} 
+                            className="px-4 py-2 bg-cyan-500 rounded-md hover:bg-cyan-600 font-semibold flex items-center gap-2"
+                        >
+                            <PlusCircle size={18} />
+                            Add Main Category
+                        </button>
+                    </div>
+                </div>
+
+                <div className="overflow-y-auto flex-grow">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                        {Object.keys(initialCategories).map(mainCat => (
-                            <div key={mainCat} className="dark:bg-gray-700/50 bg-gray-100/50 p-4 rounded-lg">
-                                <h4 className="font-bold text-lg mb-3 text-cyan-400">{mainCat}</h4>
+                        {Object.keys(localCategories).map(mainCat => (
+                            <div key={mainCat} className="dark:bg-gray-700/50 bg-gray-100/50 p-4 rounded-lg border border-gray-600">
+                                <div className="flex justify-between items-center mb-3">
+                                    <h4 className="font-bold text-lg text-cyan-400">{mainCat}</h4>
+                                    <button 
+                                        onClick={() => handleDeleteMainCategoryRequest(mainCat)} 
+                                        className="p-1 text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded"
+                                        title="Delete Main Category"
+                                    >
+                                        <Trash2 size={16} />
+                                    </button>
+                                </div>
                                 <div className="space-y-2 mb-4 min-h-[50px]">
-                                    {initialCategories[mainCat]?.sort().map(subCat => (
+                                    {localCategories[mainCat]?.sort().map(subCat => (
                                         <div key={subCat} className="flex items-center justify-between bg-gray-600/50 p-2 rounded-md text-sm">
                                             <span>{subCat}</span>
                                             <button onClick={() => handleDeleteRequest(mainCat, subCat)} className="p-1 text-red-400 hover:text-red-300">
@@ -7732,12 +9132,13 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
         'Current Assets': ['Sundry Debtors', 'Others'],
         'Liability': ['Accounts Payable', 'Notes Payable', 'Salaries and Wages Payable', 'Taxes Payable', 'Bonds Payable', 'Accrued Expenses', 'Unearned Revenue', 'Others'],
         'Current Liabilities': ['Sundry Creditors', 'Others'],
+        'Capital': ['Owner\'s Capital', 'Partner\'s Capital', 'Drawings', 'Others'],
         'Equity': ['Common Stock', 'Retained Earnings', 'Additional Paid-in Capital', 'Others'],
         'Income': ['Sales Revenue', 'Service Revenue', 'Interest Income', 'Rental Income', 'Dividend Income', 'Gain on Sale of Assets', 'Qid Renew', 'Issue Resident Permit', 'Change Passport Details', 'Sponsorship Change', 'Vehicles', 'Others'],
         'Expenses': ['Cost of Goods Sold (COGS)', 'Salaries and Wages', 'Rent Expense', 'Utilities Expense', 'Marketing and Advertising', 'Depreciation Expense', 'Insurance Expense', 'Travel Expense', 'Office Supplies Expense', 'Bank Charges', 'Miscellaneous Expenses', 'Qid Renew', 'Issue Resident Permit', 'Change Passport Details', 'Sponsorship Change', 'Vehicles', 'Others']
     }), []);
     const [categories, setCategories] = useState(defaultCategories);
-    const entryType = useMemo(() => { const debitTypes = ['Assets', 'Expenses', 'Current Assets']; const creditTypes = ['Liability', 'Equity', 'Income', 'Current Liabilities']; if (debitTypes.includes(newEntry.mainCategory)) return 'debit'; if (creditTypes.includes(newEntry.mainCategory)) return 'credit'; return null; }, [newEntry.mainCategory]);
+    const entryType = useMemo(() => { const debitTypes = ['Assets', 'Expenses', 'Current Assets']; const creditTypes = ['Liability', 'Capital', 'Equity', 'Income', 'Current Liabilities']; if (debitTypes.includes(newEntry.mainCategory)) return 'debit'; if (creditTypes.includes(newEntry.mainCategory)) return 'credit'; return null; }, [newEntry.mainCategory]);
 
     const recentTransactions = useMemo(() => {
         // Entries are sorted ascending by date, slice the last 10 and reverse for most-recent-first view.
@@ -8512,6 +9913,16 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                         <HandCoins size={16}/>
                         <span>Quick Entries</span>
                     </button>
+                    {/* Chart of Accounts Button */}
+                    <button
+                        onClick={() => setShowManageCategoriesModal(true)}
+                        className="flex items-center space-x-2 px-3 py-2 text-xs sm:text-sm font-semibold rounded-md transition-all duration-200 bg-gradient-to-r from-purple-600 to-blue-600 text-white hover:from-purple-700 hover:to-blue-700"
+                        title="Manage Chart of Accounts"
+                    >
+                        <BookOpen size={16}/>
+                        <span className="hidden sm:inline">Chart of Accounts</span>
+                        <span className="sm:hidden">CoA</span>
+                    </button>
                     {/* Add New Entry Button */}
                     <button
                         onClick={() => setShowNewEntryModal(true)}
@@ -8520,6 +9931,19 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                     >
                         <PlusCircle size={16}/>
                         <span>New Entry</span>
+                    </button>
+                    
+                    <div className="w-px h-6 bg-gray-300 dark:bg-gray-600"></div>
+                    
+                    {/* Excel Export Button */}
+                    <button
+                        onClick={handleExportLedgerExcel}
+                        disabled={isExportingExcel}
+                        className="flex items-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50"
+                        title="Export Ledger to Excel"
+                    >
+                        <Download className="h-4 w-4" />
+                        <span className="hidden sm:inline">Export Excel</span>
                     </button>
                 </div>
             </nav>
@@ -8594,32 +10018,18 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                                     <span>Clear ({tickedEntries.size})</span>
                                 </button>
                             )}
-                            <button onClick={handleExportJson} disabled={isExporting || isImporting || isClearingData} title="Export to JSON" className="p-2.5 dark:bg-green-600 bg-gray-200 text-sm rounded-md dark:hover:bg-green-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                                {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                            </button>
-                            <button onClick={triggerImport} disabled={isImporting || isExporting || isClearingData} title="Import from JSON" className="p-2.5 dark:bg-blue-600 bg-gray-200 text-sm rounded-md dark:hover:bg-blue-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                                {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                            </button>
-                            {/* --- NEW EXCEL EXPORT BUTTON --- */}
+                            {/* Excel Export Button */}
                             <button 
                                 onClick={handleExportLedgerExcel} 
-                                disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
+                                disabled={isExportingExcel || isClearingData} 
                                 title="Export General Ledger to Excel" 
                                 className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
                             >
                                 {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
                             </button>
-                            {/* --- END NEW EXCEL EXPORT BUTTON --- */}
-                            <button onClick={handleClearLedgerData} disabled={isClearingData || isImporting || isExporting} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                            <button onClick={handleClearLedgerData} disabled={isClearingData || isExportingExcel} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                                 {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                             </button>
-                            <input
-                                type="file"
-                                ref={importFileInputRef}
-                                onChange={handleImportJsonChange}
-                                className="hidden"
-                                accept=".json,application/json"
-                            />
                             <div className="relative">
                                <input
                                     type="text"
@@ -9078,6 +10488,73 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
         });
     };
 
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+
+            setConfirmAction({
+                title: 'Confirm Import',
+                message: `This will import debts & credits data from Excel. Existing entries with the same ID will be updated. Continue?`,
+                confirmText: 'Import',
+                type: 'import',
+                action: async () => {
+                    try {
+                        // Map sheet names to collection paths
+                        const sheetMappings = {
+                            'Active_Entries': pageCollectionPath,
+                            'Settled_Entries': settledCollectionPath,
+                            'Bad_Debts': badDebtsCollectionPath
+                        };
+
+                        for (const [sheetName, collectionPath] of Object.entries(sheetMappings)) {
+                            if (!workbook.SheetNames.includes(sheetName)) continue;
+
+                            const worksheet = workbook.Sheets[sheetName];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+
+                            for (const row of jsonData) {
+                                const entryData = {
+                                    date: parseDateForFirestore(row['Date']) || new Date(),
+                                    dueDate: parseDateForFirestore(row['Due Date']) || null,
+                                    name: row['Name'] || '',
+                                    nationality: row['Nationality'] || '',
+                                    description: row['Description'] || '',
+                                    debit: Number(row['Debit']) || 0,
+                                    credit: Number(row['Credit']) || 0,
+                                    mainCategory: row['Main Category'] || '',
+                                    subCategory: row['Sub Category'] || ''
+                                };
+
+                                if (row.id) {
+                                    await setDoc(doc(collectionRef, row.id), entryData, { merge: true });
+                                } else {
+                                    await addDoc(collectionRef, entryData);
+                                }
+                            }
+                        }
+
+                        alert('Import successful!');
+                    } catch (error) {
+                        console.error('Import process failed:', error);
+                        alert(`Import failed: ${error.message}`);
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Import failed:', error);
+            alert(`Failed to read Excel file: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
+
     const handleImportJsonChange = (e) => {
         const file = e.target.files[0];
         if (!file) return;
@@ -9514,26 +10991,28 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                     </div>
 
                     <div className="flex items-center space-x-2 no-print flex-wrap gap-2 justify-end">
-                        <button onClick={handleExportJson} disabled={isExporting || isImporting || isExportingExcel} title="Export to JSON" className="p-2.5 dark:bg-green-600 bg-gray-200 text-sm rounded-md dark:hover:bg-green-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            {isExporting ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                        </button>
                         <button 
                             onClick={handleExportExcel} 
-                            disabled={isExportingExcel || isExporting || isImporting} 
+                            disabled={isExportingExcel || isImporting} 
                             title="Export to Excel" 
                             className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                         >
                             {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
                         </button>
-                        <button onClick={triggerImport} disabled={isImporting || isExporting || isExportingExcel} title="Import from JSON" className="p-2.5 dark:bg-blue-600 bg-gray-200 text-sm rounded-md dark:hover:bg-blue-700 hover:bg-gray-300 no-print disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800 opacity-0 group-hover:opacity-100 transition-opacity duration-300">
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
+                        <button 
+                            onClick={triggerImport} 
+                            disabled={isImporting || isExportingExcel} 
+                            title="Import from Excel" 
+                            className="p-2.5 dark:bg-blue-600 bg-blue-100 text-sm rounded-md dark:hover:bg-blue-700 hover:bg-blue-200 no-print disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                        >
+                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
                         </button>
                         <input
                             type="file"
                             ref={importFileInputRef}
-                            onChange={handleImportJsonChange}
+                            onChange={handleImportExcel}
                             className="hidden"
-                            accept=".json,application/json"
+                            accept=".xlsx,.xls"
                         />
                         <button
                             onClick={() => setShowAddModal(true)}
@@ -10038,6 +11517,9 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [activeReport, setActiveReport] = useState('pnl');
+    const [isExporting, setIsExporting] = useState(false);
+    const [isImporting, setIsImporting] = useState(false);
+    const importFileInputRef = useRef(null);
 
     useEffect(() => { if(!userId || appId === 'default-app-id') return; const q = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`); const unsub = onSnapshot(q, (snap) => setLedger(snap.docs.map(d => ({id: d.id, ...d.data()})))); return unsub; }, [userId, appId, collectionPath]);
 
@@ -10181,6 +11663,90 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
     }))].filter(Boolean).sort((a,b) => b-a);
     const months = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
+    const handleExportExcel = async () => {
+        setIsExporting(true);
+        try {
+            const ledgerData = ledger.map(entry => ({
+                id: entry.id,
+                date: formatDate(entry.date),
+                particulars: entry.particulars,
+                mainCategory: entry.mainCategory,
+                subCategory: entry.subCategory,
+                debit: entry.debit || 0,
+                credit: entry.credit || 0
+            }));
+
+            const workbook = window.XLSX.utils.book_new();
+            
+            // Main ledger sheet
+            const ledgerSheet = window.XLSX.utils.json_to_sheet(ledgerData);
+            window.XLSX.utils.book_append_sheet(workbook, ledgerSheet, 'Ledger Entries');
+            
+            // Export current report data
+            if (activeReport === 'pnl') {
+                const pnlData = [
+                    { Category: 'Revenue', Amount: totalRevenue },
+                    { Category: 'Expenses', Amount: totalExpenses },
+                    { Category: 'Net Profit', Amount: netProfit }
+                ];
+                const pnlSheet = window.XLSX.utils.json_to_sheet(pnlData);
+                window.XLSX.utils.book_append_sheet(workbook, pnlSheet, 'P&L Summary');
+            }
+
+            window.XLSX.writeFile(workbook, `financial_report_${activeReport}_${new Date().toISOString().split('T')[0]}.xlsx`);
+        } catch (error) {
+            console.error('Export failed:', error);
+            alert('Failed to export financial report. Check console for details.');
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        setIsImporting(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+            const worksheet = workbook.Sheets['Ledger Entries'];
+            
+            if (!worksheet) {
+                throw new Error('No "Ledger Entries" sheet found in the Excel file');
+            }
+
+            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+            
+            const ledgerRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+            
+            for (const row of jsonData) {
+                const entryData = {
+                    date: parseDateForFirestore(row.date) || new Date(),
+                    particulars: row.particulars || '',
+                    mainCategory: row.mainCategory || '',
+                    subCategory: row.subCategory || '',
+                    debit: Number(row.debit) || 0,
+                    credit: Number(row.credit) || 0
+                };
+
+                if (row.id) {
+                    await setDoc(doc(ledgerRef, row.id), entryData, { merge: true });
+                } else {
+                    await addDoc(ledgerRef, entryData);
+                }
+            }
+            
+            alert('Import successful!');
+        } catch (error) {
+            console.error('Import failed:', error);
+            alert(`Failed to import ledger data: ${error.message}`);
+        } finally {
+            setIsImporting(false);
+            e.target.value = '';
+        }
+    };
+
     const ReportRow = ({ item }) => {
         return (
             <div className={`flex justify-between text-sm py-1`}>
@@ -10245,6 +11811,35 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
                             {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
                         </select>
                     )}
+                    
+                    <div className="w-px h-6 bg-gray-300 dark:bg-gray-600 mx-2"></div>
+                    
+                    <button
+                        onClick={handleExportExcel}
+                        disabled={isExporting}
+                        className="flex items-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+                        title="Export Financial Report to Excel"
+                    >
+                        <Download className="h-4 w-4" />
+                        <span className="hidden sm:inline">Export Excel</span>
+                    </button>
+                    
+                    <input
+                        ref={importFileInputRef}
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={handleImportExcel}
+                        className="hidden"
+                    />
+                    <button
+                        onClick={() => importFileInputRef.current?.click()}
+                        disabled={isImporting}
+                        className="flex items-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+                        title="Import Ledger Data from Excel"
+                    >
+                        <Upload className="h-4 w-4" />
+                        <span className="hidden sm:inline">Import Excel</span>
+                    </button>
                 </div>
             </div>
         </nav>
@@ -11003,6 +12598,159 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
         });
     };
 
+    const excelImportRef = useRef(null);
+    const [isImportingExcel, setIsImportingExcel] = useState(false);
+
+    const handleImportExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!window.XLSX) {
+            alert("Excel import library is not ready. Please try again in a moment.");
+            return;
+        }
+
+        setIsImportingExcel(true);
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+
+            setConfirmAction({
+                title: 'DANGER: Import All Data from Excel',
+                message: `This will import data from Excel and MERGE it with existing data. Entries with matching IDs will be updated. This action affects ALL collections. Continue?`,
+                confirmText: 'Yes, Import & Merge',
+                type: 'import',
+                action: async () => {
+                    try {
+                        const collectionMappings = {
+                            'Al Marri Employees': 'alMarriData',
+                            'Al Marri Employee PnL': 'alMarriEmployeePnl',
+                            'Al Marri Vehicles': 'alMarriVehicles',
+                            'Al Marri WPS': 'alMarriWps',
+                            'Al Marri Bank': 'alMarriBank',
+                            'Al Marri Audit': 'alMarriAudit',
+                            'Al Marri Documents': 'alMarriDocuments',
+                            'Al Marri Credentials': 'alMarriCredentials',
+                            'Al Marri Reminders': 'alMarriReminders',
+                            'Al Marri Others': 'alMarriOthers',
+                            'Al Marri Cheques': 'alMarriCheques',
+                            'Fathoom Employees': 'fathoomData',
+                            'Fathoom Employee PnL': 'fathoomEmployeePnl',
+                            'Fathoom Vehicles': 'fathoomVehicles',
+                            'Fathoom WPS': 'fathoomWps',
+                            'Fathoom Bank': 'fathoomBank',
+                            'Fathoom Audit': 'fathoomAudit',
+                            'Fathoom Documents': 'fathoomDocuments',
+                            'Fathoom Credentials': 'fathoomCredentials',
+                            'Fathoom Reminders': 'fathoomReminders',
+                            'Fathoom Others': 'fathoomOthers',
+                            'Fathoom Cheques': 'fathoomCheques',
+                            'Business Al Marri': 'business_almarri',
+                            'Business Fathoom': 'business_fathoom',
+                            'Business Recruitments': 'business_recruitments',
+                            'Business Vehicles': 'business_vehicles',
+                            'Business Transportation': 'business_transportation',
+                            'Ledger': 'ledgerQatar',
+                            'Ledger Favorites': 'ledgerFavorites',
+                            'Debts & Credits': 'debts_credits',
+                            'Settled Debts-Credits': 'debts_credits_settled',
+                            'Bad Debts': 'bad_debts',
+                            'Visa Entries': 'visa_entries',
+                            'Visa PnL': 'visa_pnl',
+                            'Vision Notes': 'visionNotes',
+                            'Statements': 'statements'
+                        };
+
+                        for (const [sheetName, collectionPath] of Object.entries(collectionMappings)) {
+                            if (!workbook.SheetNames.includes(sheetName)) continue;
+
+                            const worksheet = workbook.Sheets[sheetName];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+                            
+                            if (jsonData.length === 0) continue;
+
+                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+
+                            // Handle Statements special case (flattened structure in Excel)
+                            if (collectionPath === 'statements') {
+                                const statementsMap = {};
+                                jsonData.forEach(row => {
+                                    const stmtId = row['statement_id'];
+                                    if (!statementsMap[stmtId]) {
+                                        statementsMap[stmtId] = {
+                                            to: row['statement_to'] || '',
+                                            subject: row['statement_subject'] || '',
+                                            date: parseDateForFirestore(row['statement_date']) || new Date(),
+                                            invoiceItems: []
+                                        };
+                                    }
+                                    if (row['item_description']) {
+                                        statementsMap[stmtId].invoiceItems.push({
+                                            date: parseDateForFirestore(row['item_date']) || new Date(),
+                                            description: row['item_description'] || '',
+                                            invoiceNo: row['item_invoiceNo'] || '',
+                                            debit: Number(row['item_debit']) || 0,
+                                            credit: Number(row['item_credit']) || 0
+                                        });
+                                    }
+                                });
+
+                                for (const [stmtId, stmtData] of Object.entries(statementsMap)) {
+                                    const docRef = doc(collectionRef, stmtId);
+                                    await setDoc(docRef, stmtData, { merge: true });
+                                }
+                            } else {
+                                // Standard import for other collections
+                                for (const row of jsonData) {
+                                    const { id, ...rowData } = row;
+                                    const processedData = {};
+                                    
+                                    for (const key in rowData) {
+                                        const value = rowData[key];
+                                        // Try to parse dates
+                                        if (key.toLowerCase().includes('date') || key === 'createdAt') {
+                                            processedData[key] = parseDateForFirestore(value) || value;
+                                        } else if (typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))) {
+                                            // Try to parse JSON strings back to objects/arrays
+                                            try {
+                                                processedData[key] = JSON.parse(value);
+                                            } catch {
+                                                processedData[key] = value;
+                                            }
+                                        } else {
+                                            processedData[key] = value;
+                                        }
+                                    }
+
+                                    if (id) {
+                                        await setDoc(doc(collectionRef, id), processedData, { merge: true });
+                                    } else {
+                                        await addDoc(collectionRef, processedData);
+                                    }
+                                }
+                            }
+                        }
+
+                        alert('Excel import successful! Data has been merged with existing records.');
+                    } catch (error) {
+                        console.error('Excel import process failed:', error);
+                        alert(`Import failed: ${error.message}`);
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Failed to read Excel file:', error);
+            alert(`Failed to read Excel file: ${error.message}`);
+        } finally {
+            setIsImportingExcel(false);
+            e.target.value = '';
+        }
+    };
+
+    const triggerExcelImport = () => {
+        excelImportRef.current?.click();
+    };
+
     // --- Chart Data State ---
     const [allBusinessData, setAllBusinessData] = useState([]);
     const [ledgerData, setLedgerData] = useState([]);
@@ -11538,15 +13286,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                     <span>Charts</span>
                 </button>
                 <button
-                    onClick={() => setActiveVisionSubPage('vision')}
-                    className={`flex items-center space-x-2 px-3 py-2 text-xs sm:text-sm font-semibold rounded-md transition-all duration-200 ${
-                        activeVisionSubPage === 'vision' ? 'bg-gradient-to-r from-green-500 to-yellow-500 text-white shadow-md' : 'dark:text-gray-300 text-gray-600 dark:hover:bg-gray-700 hover:bg-gray-200'
-                    }`}
-                >
-                    <Target size={16}/>
-                    <span>Vision & Plans</span>
-                </button>
-                <button
                     onClick={() => setActiveVisionSubPage('notes')}
                     className={`flex items-center space-x-2 px-3 py-2 text-xs sm:text-sm font-semibold rounded-md transition-all duration-200 ${
                         activeVisionSubPage === 'notes' ? 'bg-gradient-to-r from-green-500 to-yellow-500 text-white shadow-md' : 'dark:text-gray-300 text-gray-600 dark:hover:bg-gray-700 hover:bg-gray-200'
@@ -11582,78 +13321,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                          <Doughnut data={expenseBreakdownData} options={commonChartOptions} />
                      </ChartCard>
                  </div>
-            </section>
-            )}
-
-            {activeVisionSubPage === 'vision' && (
-            <section className="dark:bg-gray-800 bg-white p-6 rounded-lg border-l-4 border-yellow-500">
-                <div className="flex justify-between items-center mb-4">
-                    <h2 className="text-2xl font-bold">Our Vision & Plans</h2>
-                    <div className="flex items-center space-x-2 no-print">
-                        {/* --- NEW FILE INPUT --- */}
-                        <input
-                            type="file"
-                            ref={visionImportRef}
-                            onChange={handleImportVisionChange}
-                            className="hidden"
-                            accept=".json,application/json"
-                        />
-                        {/* --- END NEW --- */}
-                        {isEditingVision ? (
-                            <>
-                                <button onClick={handleSaveVision} className="flex items-center space-x-2 px-4 py-2 bg-green-500 rounded-md hover:bg-green-600">
-                                    <Save size={16}/>
-                                    <span>Save</span>
-                                </button>
-                                <button onClick={() => setIsEditingVision(false)} className="flex items-center space-x-2 px-4 py-2 bg-gray-600 rounded-md hover:bg-gray-500">
-                                    <X size={16}/>
-                                    <span>Cancel</span>
-                                </button>
-                            </>
-                        ) : (
-                            <>
-                                {visionText ? (
-                                    <>
-                                        <button onClick={() => setIsEditingVision(true)} className="flex items-center space-x-2 px-4 py-2 bg-cyan-500 rounded-md hover:bg-cyan-600">
-                                            <Edit size={16}/>
-                                            <span>Edit</span>
-                                        </button>
-                                        <button onClick={handleDeleteVisionRequest} className="flex items-center space-x-2 px-4 py-2 bg-red-500 rounded-md hover:bg-red-600">
-                                            <Trash2 size={16}/>
-                                            <span>Delete</span>
-                                        </button>
-                                        {/* --- NEW BUTTONS --- */}
-                                        <button onClick={handleExportVision} disabled={isExportingVision} title="Export Vision" className="p-2.5 bg-green-500 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">
-                                            {isExportingVision ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
-                                        </button>
-                                        <button onClick={triggerImportVision} disabled={isImportingVision} title="Import Vision" className="p-2.5 bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50">
-                                            {isImportingVision ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
-                                        </button>
-                                        {/* --- END NEW --- */}
-                                    </>
-                                ) : (
-                                    <button onClick={() => setIsEditingVision(true)} className="flex items-center space-x-2 px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">
-                                        <PlusCircle size={16}/>
-                                        <span>Add Vision & Plans</span>
-                                    </button>
-                                )}
-                            </>
-                        )}
-                    </div>
-                </div>
-
-                {isEditingVision ? (
-                     <textarea
-                        value={visionText}
-                        onChange={(e) => setVisionText(e.target.value)}
-                        className="w-full h-40 p-4 dark:bg-gray-700 bg-gray-100 rounded-md focus:ring-2 focus:ring-cyan-500 outline-none"
-                        placeholder="Enter your company's vision, future plans, and suggestions..."
-                    />
-                ) : (
-                    <div className="prose prose-invert max-w-none dark:bg-gray-900/50 bg-gray-50 p-4 rounded-md min-h-[10rem] whitespace-pre-wrap">
-                        {visionText || <p className="text-gray-400 italic">No vision & plans saved yet. Click 'Edit' to add content.</p>}
-                    </div>
-                )}
             </section>
             )}
 
@@ -11759,25 +13426,47 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
             )}
 
             {activeVisionSubPage === 'insights' && (
-            <div className="space-y-8">
-            <section className="dark:bg-gray-800 bg-white p-6 rounded-lg border-l-4 border-yellow-500"> <h2 className="text-2xl font-bold mb-4">AI-Powered Insights</h2> <button onClick={handleGenerateAnalysis} disabled={isLoadingAi} className="px-4 py-2 bg-cyan-500 rounded-md hover:bg-cyan-600 disabled:bg-gray-600 no-print"> {isLoadingAi ? 'Generating...' : 'Generate AI Analysis'} </button> <div className="mt-4 p-4 dark:bg-gray-700 bg-gray-200 rounded-md min-h-[100px]"> {isLoadingAi ? <p>Loading analysis...</p> : <p>{aiAnalysis || "Click the button to generate AI-powered insights for your business."}</p>} </div> </section>
-            
             <section className="dark:bg-gray-800 bg-white p-6 rounded-lg no-print border-l-4 border-yellow-500">
-                <h2 className="text-2xl font-bold mb-4">Data Management</h2>
-                <p className="text-gray-400 mb-4 text-sm">Export all your dashboard data to a JSON file for backup, or import a previously saved file to restore your dashboard. <strong className="text-yellow-400">Warning: Importing will delete all current data.</strong></p>
-                <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-                    <div className="flex items-center gap-4">
-                        <button onClick={handleExportAllData} disabled={isExporting || isImporting || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-green-500 bg-gray-200 rounded-md dark:hover:bg-green-600 hover:bg-gray-300 transition-colors disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800 w-full sm:w-auto justify-center">
+                <h2 className="text-2xl font-bold mb-6">Data Management</h2>
+                
+                {/* Bulk Export/Import (Excel) */}
+                <div className="mb-8">
+                    <h3 className="text-lg font-semibold mb-2 text-cyan-400">Bulk Export/Import (Excel)</h3>
+                    <p className="text-gray-400 mb-4 text-sm">Export all dashboard data to Excel or import from Excel. This includes all pages and sections (Employees, Vehicles, Business, Ledger, etc.).</p>
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <button onClick={handleExportExcel} disabled={isExportingExcel || isExporting || isImporting || isImportingExcel || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-green-600 bg-green-100 rounded-md dark:hover:bg-green-700 hover:bg-green-200 transition-colors disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700">
+                            {isExportingExcel ? <Loader2 className="animate-spin" /> : <FileCheck2 size={18}/>}
+                            <span>{isExportingExcel ? 'Exporting to Excel...' : 'Export All as Excel'}</span>
+                        </button>
+                        <button onClick={triggerExcelImport} disabled={isImportingExcel || isExportingExcel || isExporting || isImporting || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-blue-600 bg-blue-100 rounded-md dark:hover:bg-blue-700 hover:bg-blue-200 transition-colors disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">
+                            {isImportingExcel ? <Loader2 className="animate-spin" /> : <Upload size={18}/>}
+                            <span>{isImportingExcel ? 'Importing from Excel...' : 'Import from Excel'}</span>
+                        </button>
+                        <input
+                            type="file"
+                            ref={excelImportRef}
+                            onChange={handleImportExcel}
+                            className="hidden"
+                            accept=".xlsx,.xls"
+                        />
+                    </div>
+                </div>
+
+                {/* Separator */}
+                <div className="border-t dark:border-gray-700 border-gray-300 my-6"></div>
+
+                {/* Bulk Export/Import (JSON) */}
+                <div className="mb-8">
+                    <h3 className="text-lg font-semibold mb-2 text-purple-400">Bulk Export/Import (JSON)</h3>
+                    <p className="text-gray-400 mb-4 text-sm">Export all dashboard data to JSON for backup, or import to restore. <strong className="text-yellow-400">Warning: Importing JSON will delete all current data and replace it.</strong></p>
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <button onClick={handleExportAllData} disabled={isExporting || isImporting || isImportingExcel || isExportingExcel || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-green-500 bg-green-100 rounded-md dark:hover:bg-green-600 hover:bg-green-200 transition-colors disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700">
                             {isExporting ? <Loader2 className="animate-spin" /> : <Download size={18}/>}
-                            <span>{isExporting ? 'Exporting Data...' : 'Export All Data'}</span>
+                            <span>{isExporting ? 'Exporting to JSON...' : 'Export All Data as JSON'}</span>
                         </button>
-                        <button onClick={triggerImport} disabled={isImporting || isExporting || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-blue-500 bg-gray-200 rounded-md dark:hover:bg-blue-600 hover:bg-gray-300 transition-colors disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800 w-full sm:w-auto justify-center">
+                        <button onClick={triggerImport} disabled={isImporting || isExporting || isImportingExcel || isExportingExcel || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-blue-500 bg-blue-100 rounded-md dark:hover:bg-blue-600 hover:bg-blue-200 transition-colors disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">
                             {isImporting ? <Loader2 className="animate-spin" /> : <FileUp size={18}/>}
-                            <span>{isImporting ? 'Importing Data...' : 'Import from File'}</span>
-                        </button>
-                        <button onClick={handleClearAllData} disabled={isClearingData || isImporting || isExporting} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700 w-full sm:w-auto justify-center">
-                            {isClearingData ? <Loader2 className="animate-spin" /> : <AlertTriangle size={18}/>}
-                            <span>{isClearingData ? 'Clearing Data...' : 'Clear All Data'}</span>
+                            <span>{isImporting ? 'Importing from JSON...' : 'Import from JSON'}</span>
                         </button>
                         <input
                             type="file"
@@ -11787,19 +13476,26 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                             accept=".json,application/json"
                         />
                     </div>
-                    <div className="flex items-center space-x-2 flex-wrap gap-2">
-                        <button onClick={handleExportExcel} disabled={isExportingExcel || isExporting || isImporting || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-green-600 bg-gray-200 text-sm rounded-md dark:hover:bg-green-700 hover:bg-gray-300 transition-colors disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                            {isExportingExcel ? <Loader2 className="animate-spin" /> : <FileCheck2 size={16}/>}
-                            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel Report'}</span>
-                        </button>
-                        <button onClick={handleDownloadPdfClick} disabled={isDownloading || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-600 bg-gray-200 text-sm rounded-md dark:hover:bg-red-700 hover:bg-gray-300 transition-colors disabled:bg-gray-500 border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                            {isDownloading ? <Loader2 className="animate-spin" /> : <FileText size={16} />}
+                </div>
+
+                {/* Separator */}
+                <div className="border-t dark:border-gray-700 border-gray-300 my-6"></div>
+
+                {/* Other Actions */}
+                <div>
+                    <h3 className="text-lg font-semibold mb-2 text-orange-400">Other Actions</h3>
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <button onClick={handleDownloadPdfClick} disabled={isDownloading || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-600 bg-red-100 rounded-md dark:hover:bg-red-700 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                            {isDownloading ? <Loader2 className="animate-spin" /> : <FileText size={18} />}
                             <span>{isDownloading ? 'Generating PDF...' : 'Download PDF Report'}</span>
+                        </button>
+                        <button onClick={handleClearAllData} disabled={isClearingData || isImporting || isExporting || isImportingExcel || isExportingExcel} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                            {isClearingData ? <Loader2 className="animate-spin" /> : <AlertTriangle size={18}/>}
+                            <span>{isClearingData ? 'Clearing Data...' : 'Clear All Data'}</span>
                         </button>
                     </div>
                 </div>
             </section>
-            </div>
             )}
             
         </div>

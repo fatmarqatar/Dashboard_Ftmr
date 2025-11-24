@@ -703,7 +703,9 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
     const itemsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
+    const settingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, collectionPath), [userId, appId, collectionPath]);
 
+    // Load items from Firestore
     useEffect(() => {
         const unsub = onSnapshot(itemsRef, snapshot => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -711,6 +713,31 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
         });
         return () => unsub();
     }, [itemsRef]);
+
+    // Load and persist selected items
+    useEffect(() => {
+        if (!settingsRef) return;
+        const unsub = onSnapshot(settingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setSelectedItems(new Set(data.selectedIds || []));
+            } else {
+                setSelectedItems(new Set());
+            }
+        }, (error) => {
+            console.error("Error fetching selected items:", error);
+        });
+        return () => unsub();
+    }, [settingsRef]);
+
+    const updateSelectedInFirestore = useCallback(async (newSet) => {
+        if (!settingsRef) return;
+        try {
+            await setDoc(settingsRef, { selectedIds: Array.from(newSet) }, { merge: true });
+        } catch (error) {
+            console.error("Failed to save selected items:", error);
+        }
+    }, [settingsRef]);
 
     const filteredItems = useMemo(() => {
         if (!searchTerm) return items;
@@ -841,9 +868,10 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
             } else {
                 newSet.add(itemId);
             }
+            updateSelectedInFirestore(newSet);
             return newSet;
         });
-    }, []);
+    }, [updateSelectedInFirestore]);
 
     const handleToggleSelectAll = () => {
         const allIds = filteredItems.map(item => item.id);
@@ -856,6 +884,7 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
             } else {
                 allIds.forEach(id => newSet.add(id));
             }
+            updateSelectedInFirestore(newSet);
             return newSet;
         });
     };
@@ -874,7 +903,9 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
                     batch.delete(doc(itemsRef, itemId));
                 });
                 await batch.commit();
-                setSelectedItems(new Set());
+                const newSet = new Set();
+                setSelectedItems(newSet);
+                updateSelectedInFirestore(newSet);
             }
         });
     };
@@ -985,6 +1016,7 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
     const vehiclesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
+    const settingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, collectionPath), [userId, appId, collectionPath]);
 
     useEffect(() => {
         const unsub = onSnapshot(vehiclesRef, snapshot => {
@@ -992,6 +1024,31 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
         });
         return () => unsub();
     }, [vehiclesRef]);
+
+    // Load and persist selected vehicles
+    useEffect(() => {
+        if (!settingsRef) return;
+        const unsub = onSnapshot(settingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setTickedVehicles(new Set(data.selectedIds || []));
+            } else {
+                setTickedVehicles(new Set());
+            }
+        }, (error) => {
+            console.error("Error fetching selected vehicles:", error);
+        });
+        return () => unsub();
+    }, [settingsRef]);
+
+    const updateTickedInFirestore = useCallback(async (newSet) => {
+        if (!settingsRef) return;
+        try {
+            await setDoc(settingsRef, { selectedIds: Array.from(newSet) }, { merge: true });
+        } catch (error) {
+            console.error("Failed to save selected vehicles:", error);
+        }
+    }, [settingsRef]);
 
     const handleToggleTick = useCallback((vehicleId) => {
         setTickedVehicles(prev => {
@@ -1001,9 +1058,10 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
             } else {
                 newSet.add(vehicleId);
             }
+            updateTickedInFirestore(newSet);
             return newSet;
         });
-    }, []);
+    }, [updateTickedInFirestore]);
 
     const handleToggleAllTicks = (vehicleList) => {
         const allIds = vehicleList.map(v => v.id);
@@ -1016,12 +1074,15 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
             } else {
                 allIds.forEach(id => newSet.add(id));
             }
+            updateTickedInFirestore(newSet);
             return newSet;
         });
     };
 
     const handleClearTicks = () => {
-        setTickedVehicles(new Set());
+        const newSet = new Set();
+        setTickedVehicles(newSet);
+        updateTickedInFirestore(newSet);
     };
 
     const handleDeleteSelected = () => {
@@ -1038,7 +1099,9 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                     batch.delete(doc(vehiclesRef, vehicleId));
                 });
                 await batch.commit();
-                setTickedVehicles(new Set());
+                const newSet = new Set();
+                setTickedVehicles(newSet);
+                updateTickedInFirestore(newSet);
             }
         });
     };
@@ -1410,6 +1473,11 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
     const [selectedReminders, setSelectedReminders] = useState(new Set());
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
+    
+    // Settings refs for persisting selections
+    const documentsSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, `${collectionPrefix}Documents`), [userId, appId, collectionPrefix]);
+    const credentialsSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, `${collectionPrefix}Credentials`), [userId, appId, collectionPrefix]);
+    const remindersSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, `${collectionPrefix}Reminders`), [userId, appId, collectionPrefix]);
 
     useEffect(() => {
         const unsub = onSnapshot(remindersRef, snapshot => {
@@ -1616,6 +1684,57 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
         return () => unsub();
     }, [credentialsRef]);
 
+    // Load and persist selected documents
+    useEffect(() => {
+        if (!documentsSettingsRef) return;
+        const unsub = onSnapshot(documentsSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setSelectedDocuments(new Set(data.selectedIds || []));
+            } else {
+                setSelectedDocuments(new Set());
+            }
+        });
+        return () => unsub();
+    }, [documentsSettingsRef]);
+
+    // Load and persist selected credentials
+    useEffect(() => {
+        if (!credentialsSettingsRef) return;
+        const unsub = onSnapshot(credentialsSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setSelectedCredentials(new Set(data.selectedIds || []));
+            } else {
+                setSelectedCredentials(new Set());
+            }
+        });
+        return () => unsub();
+    }, [credentialsSettingsRef]);
+
+    // Load and persist selected reminders
+    useEffect(() => {
+        if (!remindersSettingsRef) return;
+        const unsub = onSnapshot(remindersSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setSelectedReminders(new Set(data.selectedIds || []));
+            } else {
+                setSelectedReminders(new Set());
+            }
+        });
+        return () => unsub();
+    }, [remindersSettingsRef]);
+
+    const updateSelectedInFirestore = useCallback(async (settingsRef, newSet) => {
+        if (!settingsRef) return;
+        try {
+            await setDoc(settingsRef, { selectedIds: Array.from(newSet) }, { merge: true });
+        } catch (error) {
+            console.error("Failed to save selected items:", error);
+        }
+    }, []);
+
     const filteredDocuments = useMemo(() => {
         if (!searchTerm) return documents;
         const lowercasedTerm = searchTerm.toLowerCase();
@@ -1723,9 +1842,10 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             } else {
                 newSet.add(docId);
             }
+            updateSelectedInFirestore(documentsSettingsRef, newSet);
             return newSet;
         });
-    }, []);
+    }, [updateSelectedInFirestore, documentsSettingsRef]);
 
     const handleToggleSelectAllDocuments = () => {
         const allIds = filteredDocuments.map(doc => doc.id);
@@ -1737,6 +1857,7 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             } else {
                 allIds.forEach(id => newSet.add(id));
             }
+            updateSelectedInFirestore(documentsSettingsRef, newSet);
             return newSet;
         });
     };
@@ -1754,7 +1875,9 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                     batch.delete(doc(documentsRef, docId));
                 });
                 await batch.commit();
-                setSelectedDocuments(new Set());
+                const newSet = new Set();
+                setSelectedDocuments(newSet);
+                updateSelectedInFirestore(documentsSettingsRef, newSet);
             }
         });
     };
@@ -1768,9 +1891,10 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             } else {
                 newSet.add(credId);
             }
+            updateSelectedInFirestore(credentialsSettingsRef, newSet);
             return newSet;
         });
-    }, []);
+    }, [updateSelectedInFirestore, credentialsSettingsRef]);
 
     const handleToggleSelectAllCredentials = () => {
         const allIds = filteredCredentials.map(cred => cred.id);
@@ -1782,6 +1906,7 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             } else {
                 allIds.forEach(id => newSet.add(id));
             }
+            updateSelectedInFirestore(credentialsSettingsRef, newSet);
             return newSet;
         });
     };
@@ -1799,7 +1924,9 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                     batch.delete(doc(credentialsRef, credId));
                 });
                 await batch.commit();
-                setSelectedCredentials(new Set());
+                const newSet = new Set();
+                setSelectedCredentials(newSet);
+                updateSelectedInFirestore(credentialsSettingsRef, newSet);
             }
         });
     };
@@ -1813,9 +1940,10 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             } else {
                 newSet.add(reminderId);
             }
+            updateSelectedInFirestore(remindersSettingsRef, newSet);
             return newSet;
         });
-    }, []);
+    }, [updateSelectedInFirestore, remindersSettingsRef]);
 
     const handleToggleSelectAllReminders = () => {
         const allIds = filteredReminders.map(rem => rem.id);
@@ -1827,6 +1955,7 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             } else {
                 allIds.forEach(id => newSet.add(id));
             }
+            updateSelectedInFirestore(remindersSettingsRef, newSet);
             return newSet;
         });
     };
@@ -1844,7 +1973,9 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                     batch.delete(doc(remindersRef, reminderId));
                 });
                 await batch.commit();
-                setSelectedReminders(new Set());
+                const newSet = new Set();
+                setSelectedReminders(newSet);
+                updateSelectedInFirestore(remindersSettingsRef, newSet);
             }
         });
     };
@@ -3059,8 +3190,8 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         const unsubPnl = onSnapshot(pnlEntriesRef, snapshot => {
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
                 .sort((a, b) => {
-                    const dateB = b.date?.toDate() || 0;
-                    const dateA = a.date?.toDate() || 0;
+                    const dateB = getDateFromField(b.date) || new Date(0);
+                    const dateA = getDateFromField(a.date) || new Date(0);
                     return dateB - dateA; // Newest first
                 });
             setPnlEntries(data);
@@ -3124,8 +3255,8 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                     }
 
                     // If companies are the same, sort by date descending (newest first)
-                    const dateB = b.date?.toDate() || 0;
-                    const dateA = a.date?.toDate() || 0;
+                    const dateB = getDateFromField(b.date) || new Date(0);
+                    const dateA = getDateFromField(a.date) || new Date(0);
                     return dateB - dateA;
                 });
             setEntries(data);
@@ -3133,7 +3264,22 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         return () => unsub();
     }, [entriesRef]);
 
-    const years = useMemo(() => [...new Set(entries.map(e => e.date?.toDate()?.getFullYear()))].filter(Boolean).sort((a,b) => b-a), [entries]);
+    const getDateFromField = (dateField) => {
+        if (!dateField) return null;
+        if (dateField.toDate && typeof dateField.toDate === 'function') {
+            return dateField.toDate();
+        }
+        if (dateField instanceof Date) {
+            return dateField;
+        }
+        if (typeof dateField === 'string') {
+            const parsed = new Date(dateField);
+            return isNaN(parsed.getTime()) ? null : parsed;
+        }
+        return null;
+    };
+
+    const years = useMemo(() => [...new Set(entries.map(e => getDateFromField(e.date)?.getFullYear()))].filter(Boolean).sort((a,b) => b-a), [entries]);
     const months = useMemo(() => ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], []);
 
     const filteredEntries = useMemo(() => {
@@ -3142,13 +3288,13 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         // Date filtering
         if (view === 'yearly') {
             tempEntries = tempEntries.filter(e => {
-                const date = e.date?.toDate();
+                const date = getDateFromField(e.date);
                 if (!date) return false;
                 return date.getFullYear() === selectedYear;
             });
         } else if (view === 'monthly') {
             tempEntries = tempEntries.filter(e => {
-                const date = e.date?.toDate();
+                const date = getDateFromField(e.date);
                 if (!date) return false;
                 return date.getFullYear() === selectedYear && date.getMonth() === selectedMonth;
             });
@@ -3882,6 +4028,22 @@ const StatementEditor = ({ initialStatement, clients, currency, companyDetails, 
 };
 
 const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
+    // Helper function to handle different date formats
+    const getDateFromField = (dateField) => {
+        if (!dateField) return null;
+        if (dateField.toDate && typeof dateField.toDate === 'function') {
+            return dateField.toDate(); // Firestore Timestamp
+        }
+        if (dateField instanceof Date) {
+            return dateField; // Regular Date
+        }
+        if (typeof dateField === 'string') {
+            const parsed = new Date(dateField);
+            return isNaN(parsed.getTime()) ? null : parsed;
+        }
+        return null;
+    };
+
     const [statements, setStatements] = useState([]);
     const [clients, setClients] = useState([]);
     const [selectedStatement, setSelectedStatement] = useState(null);
@@ -3896,7 +4058,11 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
     useEffect(() => {
         const unsubStatements = onSnapshot(statementsRef, snapshot => {
             const sorted = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-                .sort((a,b) => (b.date?.toDate() || 0) - (a.date?.toDate() || 0));
+                .sort((a,b) => {
+                    const dateA = getDateFromField(a.date) || new Date(0);
+                    const dateB = getDateFromField(b.date) || new Date(0);
+                    return dateB - dateA;
+                });
             setStatements(sorted);
         });
 
@@ -4923,92 +5089,162 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
     const handleExportExcel = async () => {
         setIsExporting(true);
         try {
-            const collections = [
-                { name: 'Employees', path: `${collectionPrefix}Data` },
-                { name: 'Vehicles', path: `${collectionPrefix}Vehicles` },
-                { name: 'WPS', path: `wps_${collectionPrefix.toLowerCase()}` },
-                { name: 'Bank', path: `bank_${collectionPrefix.toLowerCase()}` },
-                { name: 'Audit', path: `audit_${collectionPrefix.toLowerCase()}` },
-                { name: 'Documents', path: `${collectionPrefix}Documents` },
-                { name: 'Credentials', path: `${collectionPrefix}Credentials` },
-                { name: 'Cheques', path: `cheques_${collectionPrefix.toLowerCase()}` },
-                { name: 'Others', path: `others_${collectionPrefix.toLowerCase()}` }
+        const collections = [
+            { name: 'Employees', path: `${collectionPrefix}Data` },
+            { name: 'Vehicles', path: `${collectionPrefix}Vehicles` },
+            { name: 'WPS', path: `${collectionPrefix}Wps` },
+            { name: 'Bank', path: `${collectionPrefix}Bank` },
+            { name: 'Audit', path: `${collectionPrefix}Audit` },
+            { name: 'Documents', path: `${collectionPrefix}Documents` },
+            { name: 'Credentials', path: `${collectionPrefix}Credentials` },
+            { name: 'Cheques', path: `${collectionPrefix}Cheques` },
+            { name: 'Others', path: `${collectionPrefix}Others` }
+        ];            const workbook = XLSX.utils.book_new();
+
+            // Fields to EXCLUDE from export (document URLs, storage paths, and internal fields)
+            const excludeFields = [
+                // Document URLs
+                'photoUrl', 'idCopyUrl', 'ppCopyUrl', 'lcCopyUrl', 'settleDocUrl',
+                'visaUrl', 'passportUrl', 'contractUrl', 'documentUrl', 'fileUrl',
+                'attachmentUrl', 'proofUrl', 'receiptUrl', 'imageUrl',
+                // Storage paths
+                'storagePath', 'idCopyStoragePath', 'qidExpiryStoragePath', 'ppCopyStoragePath',
+                // Boolean flags for document existence (not useful in Excel)
+                'ppCopy', 'lcCopy', 'idCopy', 'settle',
+                // Internal fields
+                '_subCollections', 'createdAt', 'updatedAt', 'timestamp'
             ];
 
-            const workbook = XLSX.utils.book_new();
+            // Helper to capitalize field names properly
+            const formatHeaderName = (key) => {
+                // Handle special cases
+                const specialCases = {
+                    'id': 'ID',
+                    'fullName': 'Full Name',
+                    'employeeNo': 'Employee No',
+                    'eNo': 'E.No',
+                    'qid': 'QID',
+                    'visaNo': 'Visa No',
+                    'passportNo': 'Passport No',
+                    'wpNumber': 'WP Number',
+                    'careOff': 'C/O',
+                    'bankName': 'Bank Name',
+                    'accountName': 'Account Name',
+                    'iban': 'IBAN',
+                    'swiftCode': 'SWIFT Code',
+                    'chequeNo': 'Cheque No',
+                    'givenDate': 'Given Date',
+                    'chequeDate': 'Cheque Date',
+                    'contact1': 'Contact 1',
+                    'contact2': 'Contact 2',
+                    'contact3': 'Contact 3',
+                    'payCardPin': 'Pay Card PIN',
+                    'labourContract2': 'Labour Contract 2'
+                };
 
-            // Define column order priorities - document fields should be last
-            const documentFields = ['photoUrl', 'idCopyUrl', 'ppCopyUrl', 'lcCopyUrl', 'settleDocUrl', 
-                                   'visaUrl', 'passportUrl', 'contractUrl', 'documentUrl', 'fileUrl', 
-                                   'attachmentUrl', 'proofUrl', 'receiptUrl', 'imageUrl'];
+                if (specialCases[key]) return specialCases[key];
+
+                // Convert camelCase to Title Case
+                return key
+                    .replace(/([A-Z])/g, ' $1') // Add space before capitals
+                    .replace(/^./, str => str.toUpperCase()) // Capitalize first letter
+                    .trim();
+            };
 
             for (const col of collections) {
                 const snapshot = await getDocs(collection(db, `artifacts/${appId}/users/${userId}/${col.path}`));
-                const data = snapshot.docs.map(doc => {
-                    const docData = { ...doc.data(), id: doc.id };
-                    // Convert Firestore timestamps to readable dates
-                    Object.keys(docData).forEach(key => {
-                        if (docData[key]?.toDate) {
-                            docData[key] = formatDate(docData[key]);
-                        }
-                    });
-                    return docData;
-                });
-
-                if (data.length > 0) {
-                    // Reorder columns: basic info first, document URLs last
-                    const reorderedData = data.map(row => {
-                        const basicFields = {};
-                        const docFields = {};
+                
+                // Helper to get value and format it
+                const getValue = (docData, key) => {
+                    if (!docData[key]) return '';
+                    let value = docData[key];
+                    if (value?.toDate) {
+                        return formatDate(value);
+                    }
+                    if (Array.isArray(value)) {
+                        return value.length > 0 ? JSON.stringify(value) : '';
+                    }
+                    if (value !== null && typeof value === 'object') {
+                        return JSON.stringify(value);
+                    }
+                    return value;
+                };
+                
+                let data;
+                
+                // SPECIAL HANDLING FOR EMPLOYEES PAGE ONLY
+                if (col.name === 'Employees') {
+                    data = snapshot.docs.map(doc => {
+                        const docData = { ...doc.data() };
+                        const orderedData = {};
                         
-                        // Separate basic fields from document fields
-                        Object.keys(row).forEach(key => {
-                            if (documentFields.includes(key)) {
-                                docFields[key] = row[key];
-                            } else {
-                                basicFields[key] = row[key];
+                        // Set columns in exact order for Employees
+                        orderedData['ID'] = doc.id;
+                        orderedData['Full Name'] = getValue(docData, 'fullName');
+                        orderedData['QID'] = getValue(docData, 'qid');
+                        orderedData['Qid Expiry'] = getValue(docData, 'qidExpiry');
+                        orderedData['Profession'] = getValue(docData, 'profession');
+                        orderedData['Nationality'] = getValue(docData, 'nationality');
+                        orderedData['Address'] = getValue(docData, 'address');
+                        orderedData['Pay Card PIN'] = getValue(docData, 'payCardPin');
+                        orderedData['Contact 1'] = getValue(docData, 'contact1');
+                        orderedData['Contact 2'] = getValue(docData, 'contact2');
+                        orderedData['Contact 3'] = getValue(docData, 'contact3');
+                        orderedData['E.No'] = getValue(docData, 'eNo') || getValue(docData, 'employeeNo');
+                        orderedData['Passport'] = getValue(docData, 'passportNo') || getValue(docData, 'passport');
+                        orderedData['Pay Card'] = getValue(docData, 'payCard');
+                        orderedData['Status'] = getValue(docData, 'status');
+                        orderedData['Notes'] = getValue(docData, 'notes');
+                        orderedData['Gender'] = getValue(docData, 'gender');
+                        orderedData['Labour Contract'] = getValue(docData, 'labourContract') || getValue(docData, 'labourContract2');
+                        
+                        return orderedData;
+                    });
+                } else {
+                    // STANDARD HANDLING FOR ALL OTHER PAGES
+                    data = snapshot.docs.map(doc => {
+                        const docData = { ...doc.data() };
+                        const cleanData = { ID: doc.id };
+                        
+                        Object.keys(docData).forEach(key => {
+                            if (excludeFields.includes(key)) return;
+                            
+                            let value = docData[key];
+                            if (value?.toDate) {
+                                value = formatDate(value);
+                            } else if (Array.isArray(value)) {
+                                value = value.length > 0 ? JSON.stringify(value) : '';
+                            } else if (value !== null && typeof value === 'object') {
+                                value = JSON.stringify(value);
                             }
+                            
+                            const headerName = formatHeaderName(key);
+                            cleanData[headerName] = value;
                         });
                         
-                        // Combine with document fields at the end
-                        return { ...basicFields, ...docFields };
+                        return cleanData;
                     });
-
-                    const worksheet = XLSX.utils.json_to_sheet(reorderedData);
-                    
-                    // Convert URL fields to clickable hyperlinks
-                    const range = XLSX.utils.decode_range(worksheet['!ref']);
-                    for (let R = range.s.r + 1; R <= range.e.r; ++R) {
-                        for (let C = range.s.c; C <= range.e.c; ++C) {
-                            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-                            const cell = worksheet[cellAddress];
-                            
-                            if (cell && cell.v && typeof cell.v === 'string') {
-                                // Check if this is a URL field
-                                const headerAddress = XLSX.utils.encode_cell({ r: 0, c: C });
-                                const headerCell = worksheet[headerAddress];
-                                
-                                if (headerCell && documentFields.includes(headerCell.v)) {
-                                    // Convert to hyperlink if it's a valid URL
-                                    if (cell.v.startsWith('http')) {
-                                        cell.l = { Target: cell.v, Tooltip: 'Click to open document' };
-                                        cell.v = 'View Document';
-                                        cell.s = { 
-                                            font: { color: { rgb: "FFFFFF" }, bold: true },
-                                            fill: { fgColor: { rgb: "22C55E" } },
-                                            alignment: { horizontal: "center", vertical: "center" }
-                                        };
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    XLSX.utils.book_append_sheet(workbook, worksheet, col.name);
                 }
+
+                // Create worksheet with data OR empty sheet with headers
+                let worksheet;
+                if (data.length > 0) {
+                    worksheet = XLSX.utils.json_to_sheet(data);
+                } else {
+                    // Create empty sheet with headers based on page type
+                    const emptyHeaders = col.name === 'Employees' 
+                        ? ['ID', 'Full Name', 'QID', 'Qid Expiry', 'Profession', 'Nationality', 'Address', 
+                           'Pay Card PIN', 'Contact 1', 'Contact 2', 'Contact 3', 'E.No', 'Passport', 
+                           'Pay Card', 'Status', 'Notes', 'Gender', 'Labour Contract']
+                        : ['ID']; // Other sheets will have at least ID column
+                    
+                    worksheet = XLSX.utils.aoa_to_sheet([emptyHeaders]);
+                }
+                
+                XLSX.utils.book_append_sheet(workbook, worksheet, col.name);
             }
 
-            XLSX.writeFile(workbook, `${pageTitle.replace(/ /g, '_')}_Complete_Data_${new Date().toISOString().split('T')[0]}.xlsx`);
+            XLSX.writeFile(workbook, `${pageTitle.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.xlsx`);
         } catch (error) {
             console.error('Export failed:', error);
             alert('Failed to export data. Check console for details.');
@@ -5029,40 +5265,182 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             const sheetMappings = {
                 'Employees': `${collectionPrefix}Data`,
                 'Vehicles': `${collectionPrefix}Vehicles`,
-                'WPS': `wps_${collectionPrefix.toLowerCase()}`,
-                'Bank': `bank_${collectionPrefix.toLowerCase()}`,
-                'Audit': `audit_${collectionPrefix.toLowerCase()}`,
+                'WPS': `${collectionPrefix}Wps`,
+                'Bank': `${collectionPrefix}Bank`,
+                'Audit': `${collectionPrefix}Audit`,
                 'Documents': `${collectionPrefix}Documents`,
                 'Credentials': `${collectionPrefix}Credentials`,
-                'Cheques': `cheques_${collectionPrefix.toLowerCase()}`,
-                'Others': `others_${collectionPrefix.toLowerCase()}`
+                'Cheques': `${collectionPrefix}Cheques`,
+                'Others': `${collectionPrefix}Others`
             };
 
+            // Define expected headers for Employees sheet (strict validation)
+            const employeesHeaders = ['ID', 'Full Name', 'QID', 'Qid Expiry', 'Profession', 'Nationality', 'Address', 'Pay Card PIN', 'Contact 1', 'Contact 2', 'Contact 3', 'E.No', 'Passport', 'Pay Card', 'Status', 'Notes', 'Gender', 'Labour Contract'];
+            
+            // Validate all sheets before importing
+            const validationErrors = [];
+            
+            for (const sheetName of workbook.SheetNames) {
+                // Check if sheet is recognized
+                if (!sheetMappings[sheetName]) {
+                    validationErrors.push(`❌ Unknown sheet: "${sheetName}"\n   Expected sheets: ${Object.keys(sheetMappings).join(', ')}`);
+                    continue;
+                }
+
+                const sheet = workbook.Sheets[sheetName];
+                const sheetData = XLSX.utils.sheet_to_json(sheet, { header: 1 });
+                
+                if (sheetData.length === 0) continue; // Empty sheet is OK
+                
+                const fileHeaders = sheetData[0] || [];
+                
+                // Check for missing ID column (required for all sheets)
+                if (!fileHeaders.includes('ID')) {
+                    validationErrors.push(`❌ Sheet "${sheetName}" is missing required column: ID`);
+                    continue;
+                }
+                
+                // Strict validation for Employees sheet
+                if (sheetName === 'Employees') {
+                    // Check for extra columns
+                    const extraColumns = fileHeaders.filter(h => !employeesHeaders.includes(h));
+                    if (extraColumns.length > 0) {
+                        validationErrors.push(`❌ Sheet "Employees" has extra/unknown columns:\n   ${extraColumns.join(', ')}\n   Remove these columns before importing.`);
+                    }
+                    
+                    // Check for missing columns
+                    const missingColumns = employeesHeaders.filter(h => !fileHeaders.includes(h));
+                    if (missingColumns.length > 0) {
+                        validationErrors.push(`❌ Sheet "Employees" is missing columns:\n   ${missingColumns.join(', ')}\n   Add these columns before importing.`);
+                    }
+                    
+                    // Check column order
+                    const expectedOrder = employeesHeaders.join(',');
+                    const actualOrder = fileHeaders.filter(h => employeesHeaders.includes(h)).join(',');
+                    if (expectedOrder !== actualOrder) {
+                        validationErrors.push(`⚠️ Sheet "Employees" columns are in wrong order.\n   Expected: ${employeesHeaders.join(', ')}`);
+                    }
+                } else {
+                    // For other sheets, just warn about unknown sheets but allow any columns
+                    // as they are dynamic based on actual data
+                }
+            }
+
+            // If validation errors found, reject the import
+            if (validationErrors.length > 0) {
+                const errorMessage = '⚠️ Import Failed - Template Validation Errors:\n\n' + 
+                    validationErrors.join('\n\n') + 
+                    '\n\n📋 Please export a fresh template and use it without modifying the structure.';
+                alert(errorMessage);
+                setIsImporting(false);
+                e.target.value = '';
+                return;
+            }
+
+            // Validation passed, proceed with import using batch writes
+            let totalImported = 0;
+            
             for (const sheetName of workbook.SheetNames) {
                 const collectionPath = sheetMappings[sheetName];
                 if (!collectionPath) continue;
 
                 const sheetData = XLSX.utils.sheet_to_json(workbook.Sheets[sheetName]);
+                if (sheetData.length === 0) continue; // Skip empty sheets
+                
                 const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
 
-                for (const row of sheetData) {
-                    const { id, ...dataWithoutId } = row;
-                    // Convert date strings back to Firestore timestamps
-                    Object.keys(dataWithoutId).forEach(key => {
-                        if (typeof dataWithoutId[key] === 'string' && dataWithoutId[key].match(/^\d{4}-\d{2}-\d{2}$/)) {
-                            dataWithoutId[key] = parseDateForFirestore(dataWithoutId[key]);
-                        }
-                    });
+                // Helper to convert formatted header back to field name
+                const toFieldName = (headerName) => {
+                    const reverseMap = {
+                        'Full Name': 'fullName',
+                        'QID': 'qid',
+                        'Qid Expiry': 'qidExpiry',
+                        'Profession': 'profession',
+                        'Nationality': 'nationality',
+                        'Address': 'address',
+                        'Pay Card PIN': 'payCardPin',
+                        'Contact 1': 'contact1',
+                        'Contact 2': 'contact2',
+                        'Contact 3': 'contact3',
+                        'E.No': 'eNo',
+                        'Passport': 'passportNo',
+                        'Pay Card': 'payCard',
+                        'Status': 'status',
+                        'Notes': 'notes',
+                        'Gender': 'gender',
+                        'Labour Contract': 'labourContract'
+                    };
+                    
+                    if (reverseMap[headerName]) return reverseMap[headerName];
+                    
+                    // Convert Title Case to camelCase for other fields
+                    return headerName
+                        .split(' ')
+                        .map((word, index) => 
+                            index === 0 
+                                ? word.toLowerCase() 
+                                : word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+                        )
+                        .join('');
+                };
 
-                    if (id) {
-                        await setDoc(doc(collectionRef, id), dataWithoutId, { merge: true });
-                    } else {
-                        await addDoc(collectionRef, dataWithoutId);
+                // Use batch writes for better performance
+                let batch = writeBatch(db);
+                let batchCount = 0;
+                const BATCH_SIZE = 500;
+
+                for (const row of sheetData) {
+                    const { ID, id, ...rowData } = row;
+                    const docId = ID || id;
+                    
+                    if (!docId) continue; // Skip rows without ID
+                    
+                    // Convert headers back to field names
+                    const firestoreData = {};
+                    Object.keys(rowData).forEach(headerName => {
+                        const fieldName = toFieldName(headerName);
+                        let value = rowData[headerName];
+                        
+                        // Skip empty values
+                        if (value === '' || value === null || value === undefined) return;
+                        
+                        // Convert date strings to Firestore timestamps
+                        if (typeof value === 'string' && value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+                            value = parseDateForFirestore(value);
+                        }
+                        
+                        // Parse JSON arrays/objects
+                        if (typeof value === 'string' && (value.startsWith('[') || value.startsWith('{'))) {
+                            try {
+                                value = JSON.parse(value);
+                            } catch (e) {
+                                // Keep as string if not valid JSON
+                            }
+                        }
+                        
+                        firestoreData[fieldName] = value;
+                    });
+                    
+                    const docRef = doc(collectionRef, docId);
+                    batch.set(docRef, firestoreData, { merge: true });
+                    batchCount++;
+                    totalImported++;
+                    
+                    // Commit batch when reaching size limit
+                    if (batchCount >= BATCH_SIZE) {
+                        await batch.commit();
+                        batch = writeBatch(db);
+                        batchCount = 0;
                     }
+                }
+                
+                // Commit remaining documents
+                if (batchCount > 0) {
+                    await batch.commit();
                 }
             }
 
-            alert('Data imported successfully!');
+            alert(`✅ Successfully imported ${totalImported} records!`);
         } catch (error) {
             console.error('Import failed:', error);
             alert('Failed to import data. Check console for details.');
@@ -5896,6 +6274,22 @@ const ManageBusinessDescriptionsModal = ({ userId, appId, onClose, initialDescri
 
 
 const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
+    // Helper function to handle different date formats
+    const getDateFromField = (dateField) => {
+        if (!dateField) return null;
+        if (dateField.toDate && typeof dateField.toDate === 'function') {
+            return dateField.toDate(); // Firestore Timestamp
+        }
+        if (dateField instanceof Date) {
+            return dateField; // Regular Date
+        }
+        if (typeof dateField === 'string') {
+            const parsed = new Date(dateField);
+            return isNaN(parsed.getTime()) ? null : parsed; // Date string
+        }
+        return null;
+    };
+
     // ... existing state and useEffect hooks ...
     const [showRecruitmentModal, setShowRecruitmentModal] = useState(false);
     const [selectedRecruitment, setSelectedRecruitment] = useState(null);
@@ -6316,7 +6710,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     // --- END NEW EXCEL EXPORT FUNCTIONS ---
 
 
-    const years = useMemo(() => [...new Set(allBusinessEntries.map(e => e.date?.toDate()?.getFullYear()))].filter(Boolean).sort((a,b) => b-a), [allBusinessEntries]);
+    const years = useMemo(() => [...new Set(allBusinessEntries.map(e => getDateFromField(e.date)?.getFullYear()))].filter(Boolean).sort((a,b) => b-a), [allBusinessEntries]);
     const months = useMemo(() => ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], []);
 
 
@@ -6372,19 +6766,19 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
             const currentYear = today.getFullYear();
             const currentMonth = today.getMonth();
             tempEntries = tempEntries.filter(e => {
-                const date = e.date?.toDate();
+                const date = getDateFromField(e.date);
                 if (!date) return false;
                 return date.getFullYear() === currentYear && date.getMonth() === currentMonth;
             });
         } else if (view === 'yearly') {
             tempEntries = tempEntries.filter(e => {
-                const date = e.date?.toDate();
+                const date = getDateFromField(e.date);
                 if (!date) return false;
                 return date.getFullYear() === selectedYear;
             });
         } else if (view === 'monthly') {
             tempEntries = tempEntries.filter(e => {
-                const date = e.date?.toDate();
+                const date = getDateFromField(e.date);
                 if (!date) return false;
                 return date.getFullYear() === selectedYear && date.getMonth() === selectedMonth;
             });
@@ -6405,8 +6799,8 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         }
 
         return [...tempEntries].sort((a, b) => {
-            const dateA = a.date?.toDate() || 0;
-            const dateB = b.date?.toDate() || 0;
+            const dateA = getDateFromField(a.date) || new Date(0);
+            const dateB = getDateFromField(b.date) || new Date(0);
             return dateA - dateB;
         });
     }, [allBusinessEntries, view, selectedYear, selectedMonth, nameFilter, descriptionFilter]);
@@ -8650,15 +9044,6 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                         <button onClick={() => setShowPayCardModal(true)} title="View Pay Cards" className="p-2.5 dark:bg-gray-600 bg-gray-200 text-sm rounded-md dark:hover:bg-gray-500 hover:bg-gray-300 no-print border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
                             <IdCard size={16}/>
                         </button>
-                        {/* New Export Excel Button */}
-                        <button 
-                            onClick={handleExportExcelReport} 
-                            disabled={isExportingExcel || isClearingData} 
-                            title="Export Excel Report" 
-                            className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
-                        >
-                            {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
-                        </button>
                         <button onClick={handleClearAllEmployees} disabled={isClearingData || isExportingExcel} title="Clear All Employee Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                             {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                         </button>
@@ -10492,7 +10877,6 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
         const file = e.target.files[0];
         if (!file) return;
 
-        setIsImporting(true);
         try {
             const data = await file.arrayBuffer();
             const workbook = window.XLSX.read(data);
@@ -10503,22 +10887,18 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                 confirmText: 'Import',
                 type: 'import',
                 action: async () => {
+                    setIsImporting(true);
                     try {
-                        // Map sheet names to collection paths
-                        const sheetMappings = {
-                            'Active_Entries': pageCollectionPath,
-                            'Settled_Entries': settledCollectionPath,
-                            'Bad_Debts': badDebtsCollectionPath
-                        };
-
-                        for (const [sheetName, collectionPath] of Object.entries(sheetMappings)) {
-                            if (!workbook.SheetNames.includes(sheetName)) continue;
-
-                            const worksheet = workbook.Sheets[sheetName];
+                        // Import Active Debts & Credits
+                        if (workbook.SheetNames.includes('Active_Debts_Credits')) {
+                            const worksheet = workbook.Sheets['Active_Debts_Credits'];
                             const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
-                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${pageCollectionPath}`);
 
                             for (const row of jsonData) {
+                                // Skip opening balance and totals rows
+                                if (row['Date'] === 'Opening Balance' || row['Date'] === 'Total') continue;
+                                
                                 const entryData = {
                                     date: parseDateForFirestore(row['Date']) || new Date(),
                                     dueDate: parseDateForFirestore(row['Due Date']) || null,
@@ -10539,10 +10919,61 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                             }
                         }
 
+                        // Import Settled Entries
+                        if (workbook.SheetNames.includes('Settled_Entries')) {
+                            const worksheet = workbook.Sheets['Settled_Entries'];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${settledCollectionPath}`);
+
+                            for (const row of jsonData) {
+                                const entryData = {
+                                    date: parseDateForFirestore(row['Date']) || new Date(),
+                                    name: row['Name'] || '',
+                                    nationality: row['Nationality'] || '',
+                                    description: row['Description'] || '',
+                                    debit: Number(row['Debit']) || 0,
+                                    credit: Number(row['Credit']) || 0,
+                                };
+
+                                if (row.id) {
+                                    await setDoc(doc(collectionRef, row.id), entryData, { merge: true });
+                                } else {
+                                    await addDoc(collectionRef, entryData);
+                                }
+                            }
+                        }
+
+                        // Import Bad Debts
+                        if (workbook.SheetNames.includes('Bad_Debts')) {
+                            const worksheet = workbook.Sheets['Bad_Debts'];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+                            const collectionRef = collection(db, `artifacts/${appId}/users/${userId}/${badDebtsCollectionPath}`);
+
+                            for (const row of jsonData) {
+                                const amount = Number(row['Amount']) || 0;
+                                const entryData = {
+                                    date: parseDateForFirestore(row['Date']) || new Date(),
+                                    name: row['Name'] || '',
+                                    nationality: row['Nationality'] || '',
+                                    description: row['Description'] || '',
+                                    debit: amount,
+                                    credit: 0,
+                                };
+
+                                if (row.id) {
+                                    await setDoc(doc(collectionRef, row.id), entryData, { merge: true });
+                                } else {
+                                    await addDoc(collectionRef, entryData);
+                                }
+                            }
+                        }
+
                         alert('Import successful!');
                     } catch (error) {
                         console.error('Import process failed:', error);
                         alert(`Import failed: ${error.message}`);
+                    } finally {
+                        setIsImporting(false);
                     }
                 }
             });
@@ -10550,7 +10981,6 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
             console.error('Import failed:', error);
             alert(`Failed to read Excel file: ${error.message}`);
         } finally {
-            setIsImporting(false);
             e.target.value = '';
         }
     };
@@ -11478,35 +11908,55 @@ const EditDebtCreditModal = ({ entry, onSave, onClose, categories, allEmployees 
 };
 
 const ConfirmationModal = ({ details, onConfirm, onCancel }) => {
+    const [isProcessing, setIsProcessing] = useState(false);
     const { title, message, confirmText, type, customForm } = details; // Added customForm
     const icons = {
         delete: <AlertTriangle size={48} className="mx-auto text-red-400 mb-4" />,
         save: <Save size={48} className="mx-auto text-cyan-400 mb-4" />,
         reactivate: <CheckCircle size={48} className="mx-auto text-green-400 mb-4" />,
+        import: <Upload size={48} className="mx-auto text-blue-400 mb-4" />,
     }
     const buttonColors = {
         delete: 'bg-red-500 hover:bg-red-600',
         save: 'bg-cyan-500 hover:bg-cyan-600',
         reactivate: 'bg-green-500 hover:bg-green-600',
+        import: 'bg-blue-500 hover:bg-blue-600',
     }
+    
+    const handleConfirm = async () => {
+        setIsProcessing(true);
+        await onConfirm(details);
+        // Modal will be closed by parent component after action completes
+    };
+    
     return (
-    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[102] p-4">
+    <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[200] p-4">
         <div className="bg-gray-800 p-6 rounded-lg shadow-xl w-full max-w-sm text-center">
-            {icons[type] || <AlertTriangle size={48} className="mx-auto text-yellow-400 mb-4" />}
-            <h3 className="text-xl font-bold mb-2">{title || 'Confirm Action'}</h3>
-            <p className="text-gray-400 mb-6">{message || 'Are you sure?'}</p>
-            
-            {/* Render custom form element if provided */}
-            {customForm && (
-                <div className="mb-4 text-left">
-                    {customForm}
-                </div>
-            )}
+            {isProcessing ? (
+                <>
+                    <Loader2 size={48} className="mx-auto text-blue-400 mb-4 animate-spin" />
+                    <h3 className="text-xl font-bold mb-2">Processing...</h3>
+                    <p className="text-gray-400 mb-6">Please wait while the operation completes.</p>
+                </>
+            ) : (
+                <>
+                    {icons[type] || <AlertTriangle size={48} className="mx-auto text-yellow-400 mb-4" />}
+                    <h3 className="text-xl font-bold mb-2">{title || 'Confirm Action'}</h3>
+                    <p className="text-gray-400 mb-6">{message || 'Are you sure?'}</p>
+                    
+                    {/* Render custom form element if provided */}
+                    {customForm && (
+                        <div className="mb-4 text-left">
+                            {customForm}
+                        </div>
+                    )}
 
-            <div className="flex justify-center space-x-4">
-                <button onClick={onCancel} className="px-6 py-2 bg-gray-600 rounded-md">Cancel</button>
-                <button onClick={() => onConfirm(details)} className={`px-6 py-2 rounded-md ${buttonColors[type] || 'bg-cyan-500'}`}>{confirmText || 'Confirm'}</button>
-            </div>
+                    <div className="flex justify-center space-x-4">
+                        <button onClick={onCancel} className="px-6 py-2 bg-gray-600 rounded-md hover:bg-gray-700">Cancel</button>
+                        <button onClick={handleConfirm} className={`px-6 py-2 rounded-md ${buttonColors[type] || 'bg-cyan-500'}`}>{confirmText || 'Confirm'}</button>
+                    </div>
+                </>
+            )}
         </div>
     </div>
 )};
@@ -11823,23 +12273,6 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
                         <Download className="h-4 w-4" />
                         <span className="hidden sm:inline">Export Excel</span>
                     </button>
-                    
-                    <input
-                        ref={importFileInputRef}
-                        type="file"
-                        accept=".xlsx,.xls"
-                        onChange={handleImportExcel}
-                        className="hidden"
-                    />
-                    <button
-                        onClick={() => importFileInputRef.current?.click()}
-                        disabled={isImporting}
-                        className="flex items-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
-                        title="Import Ledger Data from Excel"
-                    >
-                        <Upload className="h-4 w-4" />
-                        <span className="hidden sm:inline">Import Excel</span>
-                    </button>
                 </div>
             </div>
         </nav>
@@ -12096,6 +12529,22 @@ const DocumentSection = ({ title, storagePathPrefix, firestoreCollectionRef, set
 
 
 const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
+    // Helper function to handle different date formats
+    const getDateFromField = (dateField) => {
+        if (!dateField) return null;
+        if (dateField.toDate && typeof dateField.toDate === 'function') {
+            return dateField.toDate(); // Firestore Timestamp
+        }
+        if (dateField instanceof Date) {
+            return dateField; // Regular Date
+        }
+        if (typeof dateField === 'string') {
+            const parsed = new Date(dateField);
+            return isNaN(parsed.getTime()) ? null : parsed; // Date string
+        }
+        return null;
+    };
+
     const [aiAnalysis, setAiAnalysis] = useState('');
     const [isLoadingAi, setIsLoadingAi] = useState(false);
     const [isDownloading, setIsDownloading] = useState(false);
@@ -12528,9 +12977,10 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                     const processAndAddSheet = (data, sheetName) => {
                         if (data.length === 0) return;
                         const formattedData = data.map(item => {
-                            const { id, _subCollections, ...rest } = item;
-                            const newItem = {};
+                            const { _subCollections, ...rest } = item;
+                            const newItem = { id: rest.id }; // Keep ID as first field
                             for (const key in rest) {
+                                if (key === 'id') continue; // Already added
                                 const value = rest[key];
                                 if (value && typeof value.toDate === 'function') {
                                     newItem[key] = formatDate(value);
@@ -12610,17 +13060,17 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
             return;
         }
 
-        setIsImportingExcel(true);
         try {
             const data = await file.arrayBuffer();
             const workbook = window.XLSX.read(data);
 
             setConfirmAction({
-                title: 'DANGER: Import All Data from Excel',
-                message: `This will import data from Excel and MERGE it with existing data. Entries with matching IDs will be updated. This action affects ALL collections. Continue?`,
+                title: 'Import All Data from Excel',
+                message: `This will import data from Excel and MERGE it with existing data. Entries with matching IDs will be updated. Continue?`,
                 confirmText: 'Yes, Import & Merge',
                 type: 'import',
                 action: async () => {
+                    setIsImportingExcel(true);
                     try {
                         const collectionMappings = {
                             'Al Marri Employees': 'alMarriData',
@@ -12695,12 +13145,20 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                                     }
                                 });
 
+                                // Use batch writes for statements too
+                                const batch = writeBatch(db);
                                 for (const [stmtId, stmtData] of Object.entries(statementsMap)) {
-                                    const docRef = doc(collectionRef, stmtId);
-                                    await setDoc(docRef, stmtData, { merge: true });
+                                    batch.set(doc(collectionRef, stmtId), stmtData, { merge: true });
                                 }
+                                await batch.commit();
+                                console.log(`${sheetName}: Imported ${Object.keys(statementsMap).length} entries`);
                             } else {
-                                // Standard import for other collections
+                                // Standard import for other collections using BATCH WRITES (much faster!)
+                                let importedCount = 0;
+                                let batch = writeBatch(db);
+                                let batchCount = 0;
+                                const BATCH_SIZE = 500; // Firestore batch limit
+                                
                                 for (const row of jsonData) {
                                     const { id, ...rowData } = row;
                                     const processedData = {};
@@ -12723,11 +13181,30 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                                     }
 
                                     if (id) {
-                                        await setDoc(doc(collectionRef, id), processedData, { merge: true });
+                                        // Update existing entry with this ID
+                                        batch.set(doc(collectionRef, id), processedData, { merge: true });
                                     } else {
-                                        await addDoc(collectionRef, processedData);
+                                        // Create new entry with auto-generated ID
+                                        batch.set(doc(collectionRef), processedData);
+                                    }
+                                    
+                                    batchCount++;
+                                    importedCount++;
+                                    
+                                    // Commit batch when we reach limit
+                                    if (batchCount >= BATCH_SIZE) {
+                                        await batch.commit();
+                                        batch = writeBatch(db);
+                                        batchCount = 0;
                                     }
                                 }
+                                
+                                // Commit remaining items in batch
+                                if (batchCount > 0) {
+                                    await batch.commit();
+                                }
+                                
+                                console.log(`${sheetName}: Imported ${importedCount} entries`);
                             }
                         }
 
@@ -12735,6 +13212,8 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                     } catch (error) {
                         console.error('Excel import process failed:', error);
                         alert(`Import failed: ${error.message}`);
+                    } finally {
+                        setIsImportingExcel(false);
                     }
                 }
             });
@@ -12742,7 +13221,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
             console.error('Failed to read Excel file:', error);
             alert(`Failed to read Excel file: ${error.message}`);
         } finally {
-            setIsImportingExcel(false);
             e.target.value = '';
         }
     };
@@ -12813,11 +13291,11 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
     // --- Memoized Calculations for Filtered Data ---
     const { filteredBusinessData, filteredLedgerData, availableYears } = useMemo(() => {
         const allData = [...allBusinessData, ...ledgerData];
-        const years = [...new Set(allData.map(e => e.date?.toDate()?.getFullYear()))].filter(Boolean).sort((a,b) => b-a);
+        const years = [...new Set(allData.map(e => getDateFromField(e.date)?.getFullYear()))].filter(Boolean).sort((a,b) => b-a);
 
         const filterFunction = (e) => {
-            if (!e.date?.toDate) return false;
-            const date = e.date.toDate();
+            const date = getDateFromField(e.date);
+            if (!date) return false;
             if (view === 'yearly' && date.getFullYear() !== selectedYear) return false;
             if (view === 'monthly' && (date.getFullYear() !== selectedYear || date.getMonth() !== selectedMonth)) return false;
             return true;
@@ -12858,8 +13336,8 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
         const dataToProcess = allBusinessData.filter(e => e.business_source === 'Al Marri' || e.business_source === 'Fathoom');
 
         dataToProcess.forEach(entry => {
-            if(!entry.date?.toDate) return;
-            const date = entry.date.toDate();
+            const date = getDateFromField(entry.date);
+            if (!date) return;
             const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
             if (!monthlyProfit[entry.business_source][key]) monthlyProfit[entry.business_source][key] = 0;
             monthlyProfit[entry.business_source][key] += (entry.income || 0) - (entry.expense || 0);
@@ -13193,8 +13671,8 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
 
                 // Base collections
                 const collectionsToWipe = [
-                    'alMarriData', 'alMarriVehicles', 'alMarriWps', 'alMarriBank', 'alMarriAudit', 'alMarriDocuments', 'alMarriCredentials', 'alMarriReminders', 'alMarriOthers', 'alMarriEmployeePnl',
-                    'fathoomData', 'fathoomVehicles', 'fathoomWps', 'fathoomBank', 'fathoomAudit', 'fathoomDocuments', 'fathoomCredentials', 'fathoomReminders', 'fathoomOthers', 'fathoomEmployeePnl',
+                    'alMarriData', 'alMarriVehicles', 'alMarriWps', 'alMarriBank', 'alMarriAudit', 'alMarriDocuments', 'alMarriCredentials', 'alMarriCheques', 'alMarriReminders', 'alMarriOthers', 'alMarriEmployeePnl',
+                    'fathoomData', 'fathoomVehicles', 'fathoomWps', 'fathoomBank', 'fathoomAudit', 'fathoomDocuments', 'fathoomCredentials', 'fathoomCheques', 'fathoomReminders', 'fathoomOthers', 'fathoomEmployeePnl',
                     'business_almarri', 'business_fathoom', 'business_recruitments', 'business_vehicles', 'business_transportation',
                     'ledgerQatar', 'ledgerFavorites',
                     'debts_credits', 'debts_credits_settled', 'bad_debts',
@@ -13448,32 +13926,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                             onChange={handleImportExcel}
                             className="hidden"
                             accept=".xlsx,.xls"
-                        />
-                    </div>
-                </div>
-
-                {/* Separator */}
-                <div className="border-t dark:border-gray-700 border-gray-300 my-6"></div>
-
-                {/* Bulk Export/Import (JSON) */}
-                <div className="mb-8">
-                    <h3 className="text-lg font-semibold mb-2 text-purple-400">Bulk Export/Import (JSON)</h3>
-                    <p className="text-gray-400 mb-4 text-sm">Export all dashboard data to JSON for backup, or import to restore. <strong className="text-yellow-400">Warning: Importing JSON will delete all current data and replace it.</strong></p>
-                    <div className="flex items-center gap-4 flex-wrap">
-                        <button onClick={handleExportAllData} disabled={isExporting || isImporting || isImportingExcel || isExportingExcel || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-green-500 bg-green-100 rounded-md dark:hover:bg-green-600 hover:bg-green-200 transition-colors disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700">
-                            {isExporting ? <Loader2 className="animate-spin" /> : <Download size={18}/>}
-                            <span>{isExporting ? 'Exporting to JSON...' : 'Export All Data as JSON'}</span>
-                        </button>
-                        <button onClick={triggerImport} disabled={isImporting || isExporting || isImportingExcel || isExportingExcel || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-blue-500 bg-blue-100 rounded-md dark:hover:bg-blue-600 hover:bg-blue-200 transition-colors disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">
-                            {isImporting ? <Loader2 className="animate-spin" /> : <FileUp size={18}/>}
-                            <span>{isImporting ? 'Importing from JSON...' : 'Import from JSON'}</span>
-                        </button>
-                        <input
-                            type="file"
-                            ref={importFileInputRef}
-                            onChange={handleImportFileChange}
-                            className="hidden"
-                            accept=".json,application/json"
                         />
                     </div>
                 </div>

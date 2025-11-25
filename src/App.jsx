@@ -3738,9 +3738,10 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                             onClick={handleExportExcel} 
                             disabled={isExportingExcel || isImporting} 
                             title="Export to Excel" 
-                            className="p-2 bg-green-700 rounded-full hover:bg-green-800 transition-colors disabled:opacity-50"
+                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
-                            {isExportingExcel ? <Loader2 size={20} className="animate-spin" /> : <FileCheck2 size={20}/>}
+                            {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
+                            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
                         </button>
                         {/* Excel Import Button */}
                         <input
@@ -3754,9 +3755,10 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                             onClick={() => importFileInputRef.current?.click()} 
                             disabled={isImporting || isExportingExcel} 
                             title="Import from Excel" 
-                            className="p-2 bg-blue-700 rounded-full hover:bg-blue-800 transition-colors disabled:opacity-50"
+                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
-                            {isImporting ? <Loader2 size={20} className="animate-spin" /> : <Upload size={20}/>}
+                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
+                            <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
                         </button>
                         {activeView !== 'pnl' ? (
                             <button onClick={() => { setEditingEntry(null); setShowModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa Entry">
@@ -3934,13 +3936,13 @@ const StatementEditor = ({ initialStatement, clients, currency, companyDetails, 
     return (
         <div className="p-4 sm:p-8">
             <div className="flex justify-between items-center mb-4 no-print flex-wrap gap-2">
-                <button onClick={onCancel} className="px-4 py-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm dark:hover:bg-gray-800 hover:bg-gray-300 transition-colors dark:text-white text-gray-700">&larr; Back to List</button>
+                <button onClick={onCancel} className="px-4 py-2 dark:bg-gray-700 bg-gray-200 rounded-full text-sm dark:hover:bg-gray-800 hover:bg-gray-300 transition-all duration-300 dark:text-white text-gray-700 shadow-md hover:shadow-lg hover:scale-105">&larr; Back to List</button>
                 <div className="flex items-center space-x-2 flex-wrap gap-2">
-                    <button onClick={() => setIsPrintableMode(prev => !prev)} className="px-4 py-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm dark:hover:bg-gray-800 hover:bg-gray-300 transition-colors dark:text-white text-gray-700">{isPrintableMode ? 'Editor View' : 'Printable View'}</button>
-                    <button onClick={handlePrint} className="px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-md text-sm dark:hover:bg-blue-800 hover:bg-blue-200 transition-colors border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">Print/Download</button>
-                    <button onClick={handleSaveClick} className="px-4 py-2 dark:bg-cyan-700 bg-cyan-100 rounded-md text-sm dark:hover:bg-cyan-800 hover:bg-cyan-200 transition-colors border dark:border-cyan-600 border-cyan-300 dark:text-white text-cyan-700">Save</button>
+                    <button onClick={() => setIsPrintableMode(prev => !prev)} className="px-4 py-2 dark:bg-gray-700 bg-gray-200 rounded-full text-sm dark:hover:bg-gray-800 hover:bg-gray-300 transition-all duration-300 dark:text-white text-gray-700 shadow-md hover:shadow-lg hover:scale-105">{isPrintableMode ? 'Editor View' : 'Printable View'}</button>
+                    <button onClick={handlePrint} className="px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full text-sm dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 font-semibold">Print/Download</button>
+                    <button onClick={handleSaveClick} className="px-4 py-2 dark:bg-cyan-700 bg-cyan-100 rounded-full text-sm dark:hover:bg-cyan-600 hover:bg-cyan-200 transition-all duration-300 border dark:border-cyan-600 border-cyan-300 dark:text-white text-cyan-700 shadow-md hover:shadow-lg hover:scale-105 font-semibold">Save</button>
                     {!initialStatement.isNew && (
-                         <button onClick={() => onDelete(initialStatement.id)} className="p-2.5 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors border dark:border-red-600 border-red-300 dark:text-white text-red-700"><Trash2 size={16}/></button>
+                         <button onClick={() => onDelete(initialStatement.id)} className="p-2.5 dark:bg-red-700 bg-red-100 rounded-full dark:hover:bg-red-600 hover:bg-red-200 transition-all duration-300 border dark:border-red-600 border-red-300 dark:text-white text-red-700 shadow-md hover:shadow-lg hover:scale-105"><Trash2 size={16}/></button>
                     )}
                 </div>
             </div>
@@ -4340,11 +4342,11 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         <button
                             onClick={handleExportExcel}
                             disabled={isExporting}
-                            className="flex items-center space-x-1 px-2 py-1.5 dark:bg-green-700 bg-green-100 rounded-md dark:hover:bg-green-800 hover:bg-green-200 text-xs font-semibold transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 flex-1"
+                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 flex-1 shadow-md hover:shadow-lg hover:scale-105"
                             title="Export Statements to Excel"
                         >
                             {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                            <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export'}</span>
+                            <span>{isExporting ? 'Exporting...' : 'Export Excel'}</span>
                         </button>
                         <input
                             ref={importFileInputRef}
@@ -4356,11 +4358,11 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         <button
                             onClick={() => importFileInputRef.current?.click()}
                             disabled={isImporting}
-                            className="flex items-center space-x-1 px-2 py-1.5 dark:bg-blue-700 bg-blue-100 rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 text-xs font-semibold transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 flex-1"
+                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 flex-1 shadow-md hover:shadow-lg hover:scale-105"
                             title="Import Statements from Excel"
                         >
                             {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                            <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import'}</span>
+                            <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
                         </button>
                     </div>
                 </div>
@@ -5472,11 +5474,11 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             <button
                 onClick={handleExportExcel}
                 disabled={isExporting}
-                className="flex items-center space-x-1 px-3 py-2 dark:bg-green-700 bg-green-100 rounded-md dark:hover:bg-green-800 hover:bg-green-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
+                className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                 title="Export all company data to Excel"
             >
                 {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export Excel'}</span>
+                <span>{isExporting ? 'Exporting...' : 'Export Excel'}</span>
             </button>
 
             <input
@@ -5489,11 +5491,11 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             <button
                 onClick={() => importFileInputRef.current?.click()}
                 disabled={isImporting}
-                className="flex items-center space-x-1 px-3 py-2 dark:bg-blue-700 bg-blue-100 rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700"
+                className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                 title="Import company data from Excel"
             >
                 {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
             </button>
         </nav>
     );
@@ -7174,9 +7176,10 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                                 onClick={handleExportExcel} 
                                 disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
                                 title="Export Business (BS1) to Excel" 
-                                className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
+                                className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
+                                <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
                             </button>
                             {/* Excel Import Button */}
                             <input
@@ -7190,9 +7193,10 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                                 onClick={() => importFileInputRef.current?.click()} 
                                 disabled={isImporting || isExportingExcel || isExporting || isClearingData} 
                                 title="Import Business (BS1) from Excel" 
-                                className="p-2.5 dark:bg-blue-700 bg-blue-100 text-sm rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 no-print disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700"
+                                className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
+                                <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
                             </button>
                             {/* Clear All Button */}
                             <button onClick={handleClearBusinessData} disabled={isClearingData || isExportingExcel} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
@@ -10452,11 +10456,11 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                     <button
                         onClick={handleExportLedgerExcel}
                         disabled={isExportingExcel || isImporting}
-                        className="flex items-center space-x-1 px-3 py-2 dark:bg-green-700 bg-green-100 rounded-md dark:hover:bg-green-800 hover:bg-green-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
+                        className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                         title="Export Ledger to Excel"
                     >
                         {isExportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                        <span className="hidden sm:inline">{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                        <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
                     </button>
                     
                     {/* Hidden File Input for Excel Import */}
@@ -10472,11 +10476,11 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                     <button
                         onClick={triggerLedgerImport}
                         disabled={isImporting || isExportingExcel}
-                        className="flex items-center space-x-1 px-3 py-2 dark:bg-blue-700 bg-blue-100 rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700"
+                        className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                         title="Import Ledger from Excel"
                     >
                         {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                        <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                        <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
                     </button>
                 </div>
             </nav>
@@ -11564,17 +11568,19 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                             onClick={handleExportExcel} 
                             disabled={isExportingExcel || isImporting} 
                             title="Export to Excel" 
-                            className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
                             {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
+                            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
                         </button>
                         <button 
                             onClick={triggerImport} 
                             disabled={isImporting || isExportingExcel} 
                             title="Import from Excel" 
-                            className="p-2.5 dark:bg-blue-600 bg-blue-100 text-sm rounded-md dark:hover:bg-blue-700 hover:bg-blue-200 no-print disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
                             {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
+                            <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
                         </button>
                         <input
                             type="file"
@@ -13955,11 +13961,13 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                             className="hidden"
                             accept=".json,application/json"
                         />
-                        <button onClick={handleExportNotes} disabled={isExportingNotes} title="Export Notes" className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700">
+                        <button onClick={handleExportNotes} disabled={isExportingNotes} title="Export Notes" className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105">
                             {isExportingNotes ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
+                            <span>{isExportingNotes ? 'Exporting...' : 'Export Notes'}</span>
                         </button>
-                        <button onClick={triggerImportNotes} disabled={isImportingNotes} title="Import Notes" className="p-2.5 dark:bg-blue-700 bg-blue-100 text-sm rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">
+                        <button onClick={triggerImportNotes} disabled={isImportingNotes} title="Import Notes" className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105">
                             {isImportingNotes ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
+                            <span>{isImportingNotes ? 'Importing...' : 'Import Notes'}</span>
                         </button>
                     </div>
                     {/* --- END NEW --- */}
@@ -14051,12 +14059,12 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                     <h3 className="text-lg font-semibold mb-2 text-cyan-400">Bulk Export/Import (Excel)</h3>
                     <p className="text-gray-400 mb-4 text-sm">Export all dashboard data to Excel or import from Excel. This includes all pages and sections (Employees, Vehicles, Business, Ledger, etc.).</p>
                     <div className="flex items-center gap-4 flex-wrap">
-                        <button onClick={handleExportExcel} disabled={isExportingExcel || isExporting || isImporting || isImportingExcel || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-green-600 bg-green-100 rounded-md dark:hover:bg-green-700 hover:bg-green-200 transition-colors disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700">
-                            {isExportingExcel ? <Loader2 className="animate-spin" /> : <FileCheck2 size={18}/>}
+                        <button onClick={handleExportExcel} disabled={isExportingExcel || isExporting || isImporting || isImportingExcel || isClearingData} className="group flex items-center space-x-2 px-5 py-2.5 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105 font-semibold">
+                            {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <FileCheck2 size={18}/>}
                             <span>{isExportingExcel ? 'Exporting to Excel...' : 'Export All as Excel'}</span>
                         </button>
-                        <button onClick={triggerExcelImport} disabled={isImportingExcel || isExportingExcel || isExporting || isImporting || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-blue-600 bg-blue-100 rounded-md dark:hover:bg-blue-700 hover:bg-blue-200 transition-colors disabled:bg-gray-500 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">
-                            {isImportingExcel ? <Loader2 className="animate-spin" /> : <Upload size={18}/>}
+                        <button onClick={triggerExcelImport} disabled={isImportingExcel || isExportingExcel || isExporting || isImporting || isClearingData} className="group flex items-center space-x-2 px-5 py-2.5 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 font-semibold">
+                            {isImportingExcel ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18}/>}
                             <span>{isImportingExcel ? 'Importing from Excel...' : 'Import from Excel'}</span>
                         </button>
                         <input

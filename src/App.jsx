@@ -3934,13 +3934,13 @@ const StatementEditor = ({ initialStatement, clients, currency, companyDetails, 
     return (
         <div className="p-4 sm:p-8">
             <div className="flex justify-between items-center mb-4 no-print flex-wrap gap-2">
-                <button onClick={onCancel} className="px-4 py-2 bg-gray-600 rounded-md text-sm">&larr; Back to List</button>
+                <button onClick={onCancel} className="px-4 py-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm dark:hover:bg-gray-800 hover:bg-gray-300 transition-colors dark:text-white text-gray-700">&larr; Back to List</button>
                 <div className="flex items-center space-x-2 flex-wrap gap-2">
-                    <button onClick={() => setIsPrintableMode(prev => !prev)} className="px-4 py-2 bg-gray-500 rounded-md text-sm">{isPrintableMode ? 'Editor View' : 'Printable View'}</button>
-                    <button onClick={handlePrint} className="px-4 py-2 bg-blue-500 rounded-md text-sm">Print/Download</button>
-                    <button onClick={handleSaveClick} className="px-4 py-2 bg-cyan-500 rounded-md text-sm">Save</button>
+                    <button onClick={() => setIsPrintableMode(prev => !prev)} className="px-4 py-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm dark:hover:bg-gray-800 hover:bg-gray-300 transition-colors dark:text-white text-gray-700">{isPrintableMode ? 'Editor View' : 'Printable View'}</button>
+                    <button onClick={handlePrint} className="px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-md text-sm dark:hover:bg-blue-800 hover:bg-blue-200 transition-colors border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">Print/Download</button>
+                    <button onClick={handleSaveClick} className="px-4 py-2 dark:bg-cyan-700 bg-cyan-100 rounded-md text-sm dark:hover:bg-cyan-800 hover:bg-cyan-200 transition-colors border dark:border-cyan-600 border-cyan-300 dark:text-white text-cyan-700">Save</button>
                     {!initialStatement.isNew && (
-                         <button onClick={() => onDelete(initialStatement.id)} className="p-2.5 bg-red-500 rounded-md"><Trash2 size={16}/></button>
+                         <button onClick={() => onDelete(initialStatement.id)} className="p-2.5 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors border dark:border-red-600 border-red-300 dark:text-white text-red-700"><Trash2 size={16}/></button>
                     )}
                 </div>
             </div>
@@ -4340,11 +4340,11 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         <button
                             onClick={handleExportExcel}
                             disabled={isExporting}
-                            className="flex items-center space-x-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50 flex-1"
+                            className="flex items-center space-x-1 px-2 py-1.5 dark:bg-green-700 bg-green-100 rounded-md dark:hover:bg-green-800 hover:bg-green-200 text-xs font-semibold transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 flex-1"
                             title="Export Statements to Excel"
                         >
-                            <Download className="h-4 w-4" />
-                            <span>Export Excel</span>
+                            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                            <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export'}</span>
                         </button>
                         <input
                             ref={importFileInputRef}
@@ -4356,11 +4356,11 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         <button
                             onClick={() => importFileInputRef.current?.click()}
                             disabled={isImporting}
-                            className="flex items-center space-x-1 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50 flex-1"
+                            className="flex items-center space-x-1 px-2 py-1.5 dark:bg-blue-700 bg-blue-100 rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 text-xs font-semibold transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 flex-1"
                             title="Import Statements from Excel"
                         >
-                            <Upload className="h-4 w-4" />
-                            <span>Import Excel</span>
+                            {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                            <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import'}</span>
                         </button>
                     </div>
                 </div>
@@ -5472,11 +5472,11 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             <button
                 onClick={handleExportExcel}
                 disabled={isExporting}
-                className="flex items-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50"
+                className="flex items-center space-x-1 px-3 py-2 dark:bg-green-700 bg-green-100 rounded-md dark:hover:bg-green-800 hover:bg-green-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
                 title="Export all company data to Excel"
             >
-                <Download className="h-4 w-4" />
-                <span className="hidden sm:inline">Export Excel</span>
+                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                <span className="hidden sm:inline">{isExporting ? 'Exporting...' : 'Export Excel'}</span>
             </button>
 
             <input
@@ -5489,11 +5489,11 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             <button
                 onClick={() => importFileInputRef.current?.click()}
                 disabled={isImporting}
-                className="flex items-center space-x-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50"
+                className="flex items-center space-x-1 px-3 py-2 dark:bg-blue-700 bg-blue-100 rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700"
                 title="Import company data from Excel"
             >
-                <Upload className="h-4 w-4" />
-                <span className="hidden sm:inline">Import Excel</span>
+                {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import Excel'}</span>
             </button>
         </nav>
     );
@@ -10026,6 +10026,134 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
     };
     // --- END NEW EXCEL EXPORT FUNCTION ---
 
+    // --- NEW EXCEL IMPORT FUNCTION ---
+    const handleImportLedgerExcel = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        if (!window.XLSX) {
+            alert("Excel import library is not ready. Please try again in a moment.");
+            return;
+        }
+
+        try {
+            const data = await file.arrayBuffer();
+            const workbook = window.XLSX.read(data);
+
+            setConfirmAction({
+                title: 'Import Ledger Data from Excel',
+                message: 'This will import ledger entries from Excel and MERGE with existing data. Entries with matching IDs will be updated. Continue?',
+                confirmText: 'Yes, Import',
+                type: 'import',
+                action: async () => {
+                    setIsImporting(true);
+                    try {
+                        const ledgerRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+                        let importedCount = 0;
+
+                        // Use batch writes for better performance
+                        let batch = writeBatch(db);
+                        let batchCount = 0;
+                        const BATCH_SIZE = 500;
+
+                        // Import from "General Ledger" sheet
+                        if (workbook.SheetNames.includes('General Ledger')) {
+                            const worksheet = workbook.Sheets['General Ledger'];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+
+                            for (const row of jsonData) {
+                                // Skip opening balance and totals rows
+                                if (row['Date'] === 'Opening Balance' || row['Date'] === 'Total') continue;
+                                
+                                const entryData = {
+                                    date: parseDateForFirestore(row['Date']) || new Date(),
+                                    particulars: row['Particulars / Names'] || '',
+                                    mainCategory: row['Main Category'] || '',
+                                    subCategory: row['Sub Category'] || '',
+                                    debit: Number(row['Debit']) || 0,
+                                    credit: Number(row['Credit']) || 0,
+                                };
+
+                                // If row has an ID, use it; otherwise create new entry
+                                if (row.id) {
+                                    batch.set(doc(ledgerRef, row.id), entryData, { merge: true });
+                                } else {
+                                    batch.set(doc(ledgerRef), entryData);
+                                }
+                                
+                                batchCount++;
+                                importedCount++;
+                                
+                                // Commit batch when reaching limit
+                                if (batchCount >= BATCH_SIZE) {
+                                    await batch.commit();
+                                    batch = writeBatch(db);
+                                    batchCount = 0;
+                                }
+                            }
+                        }
+
+                        // Import from "Pinned Entries" sheet if exists
+                        if (workbook.SheetNames.includes('Pinned Entries')) {
+                            const worksheet = workbook.Sheets['Pinned Entries'];
+                            const jsonData = window.XLSX.utils.sheet_to_json(worksheet);
+
+                            for (const row of jsonData) {
+                                const entryData = {
+                                    date: parseDateForFirestore(row['Date']) || new Date(),
+                                    particulars: row['Particulars / Names'] || '',
+                                    mainCategory: row['Main Category'] || '',
+                                    subCategory: row['Sub Category'] || '',
+                                    debit: Number(row['Debit']) || 0,
+                                    credit: Number(row['Credit']) || 0,
+                                };
+
+                                // Add to ledger entries
+                                if (row.id) {
+                                    batch.set(doc(ledgerRef, row.id), entryData, { merge: true });
+                                } else {
+                                    batch.set(doc(ledgerRef), entryData);
+                                }
+                                
+                                batchCount++;
+                                importedCount++;
+                                
+                                // Commit batch when reaching limit
+                                if (batchCount >= BATCH_SIZE) {
+                                    await batch.commit();
+                                    batch = writeBatch(db);
+                                    batchCount = 0;
+                                }
+                            }
+                        }
+
+                        // Commit remaining items in batch
+                        if (batchCount > 0) {
+                            await batch.commit();
+                        }
+
+                        alert(`✅ Successfully imported ${importedCount} ledger entries!`);
+                    } catch (error) {
+                        console.error('Ledger import process failed:', error);
+                        alert(`Import failed: ${error.message}`);
+                    } finally {
+                        setIsImporting(false);
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Failed to read Excel file:', error);
+            alert(`Failed to read Excel file: ${error.message}`);
+        } finally {
+            e.target.value = '';
+        }
+    };
+
+    const triggerLedgerImport = () => {
+        importFileInputRef.current?.click();
+    };
+    // --- END NEW EXCEL IMPORT FUNCTION ---
+
     // --- Pin/Unpin Logic ---
     const updatePinnedInFirestore = async (newPinnedIdsSet) => {
         try {
@@ -10323,12 +10451,32 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                     {/* Excel Export Button */}
                     <button
                         onClick={handleExportLedgerExcel}
-                        disabled={isExportingExcel}
-                        className="flex items-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50"
+                        disabled={isExportingExcel || isImporting}
+                        className="flex items-center space-x-1 px-3 py-2 dark:bg-green-700 bg-green-100 rounded-md dark:hover:bg-green-800 hover:bg-green-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
                         title="Export Ledger to Excel"
                     >
-                        <Download className="h-4 w-4" />
-                        <span className="hidden sm:inline">Export Excel</span>
+                        {isExportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                        <span className="hidden sm:inline">{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                    </button>
+                    
+                    {/* Hidden File Input for Excel Import */}
+                    <input
+                        ref={importFileInputRef}
+                        type="file"
+                        accept=".xlsx,.xls"
+                        onChange={handleImportLedgerExcel}
+                        className="hidden"
+                    />
+                    
+                    {/* Excel Import Button */}
+                    <button
+                        onClick={triggerLedgerImport}
+                        disabled={isImporting || isExportingExcel}
+                        className="flex items-center space-x-1 px-3 py-2 dark:bg-blue-700 bg-blue-100 rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 text-xs sm:text-sm font-semibold transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700"
+                        title="Import Ledger from Excel"
+                    >
+                        {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                        <span className="hidden sm:inline">{isImporting ? 'Importing...' : 'Import Excel'}</span>
                     </button>
                 </div>
             </nav>
@@ -10403,15 +10551,6 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                                     <span>Clear ({tickedEntries.size})</span>
                                 </button>
                             )}
-                            {/* Excel Export Button */}
-                            <button 
-                                onClick={handleExportLedgerExcel} 
-                                disabled={isExportingExcel || isClearingData} 
-                                title="Export General Ledger to Excel" 
-                                className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 no-print disabled:bg-gray-500 border dark:border-green-600 border-green-300 dark:text-white text-green-700"
-                            >
-                                {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
-                            </button>
                             <button onClick={handleClearLedgerData} disabled={isClearingData || isExportingExcel} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                                 {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                             </button>
@@ -13816,10 +13955,10 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                             className="hidden"
                             accept=".json,application/json"
                         />
-                        <button onClick={handleExportNotes} disabled={isExportingNotes} title="Export Notes" className="p-2.5 bg-green-500 rounded-md hover:bg-green-600 transition-colors disabled:opacity-50">
+                        <button onClick={handleExportNotes} disabled={isExportingNotes} title="Export Notes" className="p-2.5 dark:bg-green-700 bg-green-100 text-sm rounded-md dark:hover:bg-green-800 hover:bg-green-200 transition-colors disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700">
                             {isExportingNotes ? <Loader2 size={16} className="animate-spin" /> : <Download size={16}/>}
                         </button>
-                        <button onClick={triggerImportNotes} disabled={isImportingNotes} title="Import Notes" className="p-2.5 bg-blue-500 rounded-md hover:bg-blue-600 transition-colors disabled:opacity-50">
+                        <button onClick={triggerImportNotes} disabled={isImportingNotes} title="Import Notes" className="p-2.5 dark:bg-blue-700 bg-blue-100 text-sm rounded-md dark:hover:bg-blue-800 hover:bg-blue-200 transition-colors disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700">
                             {isImportingNotes ? <Loader2 size={16} className="animate-spin" /> : <FileUp size={16}/>}
                         </button>
                     </div>

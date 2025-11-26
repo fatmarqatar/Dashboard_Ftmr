@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import ErrorBoundary from './ErrorBoundary';
 import LandingPage from './LandingPage';
 // Consolidated lucide-react import
-import { Undo, Download, Upload, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User } from 'lucide-react';
+import { Undo, Download, Upload, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User, ArrowUp, ArrowDown } from 'lucide-react';
 // Consolidated Chart.js imports, register first
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, BarElement, Filler } from 'chart.js';
 import { Pie, Bar, Line, Doughnut } from 'react-chartjs-2'; // Import react-chartjs-2 components after registration
@@ -2837,6 +2837,27 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         updateTickedInFirestore({ tickedEntryIds: [] }); // Save change
     };
 
+    const handleDeleteSelected = () => {
+        if (tickedEntries.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedEntries.size} selected visa entry(ies)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                tickedEntries.forEach(entryId => {
+                    batch.delete(doc(entriesRef, entryId));
+                });
+                await batch.commit();
+                const newSet = new Set();
+                setTickedEntries(newSet);
+                updateTickedInFirestore({ tickedEntryIds: [] });
+            }
+        });
+    };
+
     const handleTogglePnlTick = useCallback((entryId) => {
         setTickedPnlEntries(prev => {
             const newSet = new Set(prev);
@@ -2870,6 +2891,27 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         const newSet = new Set();
         setTickedPnlEntries(newSet);
         updateTickedInFirestore({ tickedPnlEntryIds: [] }); // Save change
+    };
+
+    const handleDeleteSelectedPnl = () => {
+        if (tickedPnlEntries.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedPnlEntries.size} selected visa P&L entry(ies)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                tickedPnlEntries.forEach(entryId => {
+                    batch.delete(doc(pnlEntriesRef, entryId));
+                });
+                await batch.commit();
+                const newSet = new Set();
+                setTickedPnlEntries(newSet);
+                updateTickedInFirestore({ tickedPnlEntryIds: [] });
+            }
+        });
     };
 
     const handleExportJson = async () => {
@@ -3696,16 +3738,28 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                     </nav>
                     <div className="flex items-center space-x-2 flex-wrap gap-2 no-print">
                         {activeView === 'pnl' && tickedPnlEntries.size > 0 && (
-                            <button onClick={handleClearPnlTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
-                                <X size={16}/>
-                                <span>Clear ({tickedPnlEntries.size})</span>
-                            </button>
+                            <>
+                                <button onClick={handleDeleteSelectedPnl} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                    <Trash2 size={16}/>
+                                    <span>Delete ({tickedPnlEntries.size})</span>
+                                </button>
+                                <button onClick={handleClearPnlTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                    <X size={16}/>
+                                    <span>Clear ({tickedPnlEntries.size})</span>
+                                </button>
+                            </>
                         )}
                         {activeView !== 'pnl' && tickedEntries.size > 0 && (
-                            <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
-                                <X size={16}/>
-                                <span>Clear ({tickedEntries.size})</span>
-                            </button>
+                            <>
+                                <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                    <Trash2 size={16}/>
+                                    <span>Delete ({tickedEntries.size})</span>
+                                </button>
+                                <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                    <X size={16}/>
+                                    <span>Clear ({tickedEntries.size})</span>
+                                </button>
+                            </>
                         )}
                         <div className="relative">
                             <input
@@ -3717,19 +3771,31 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                             />
                             <Search size={18} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
                         </div>
-                        <label className="font-semibold text-sm">View:</label>
-                        <div className="flex items-center space-x-1 bg-gray-700 p-1 rounded-lg">
-                            <button onClick={() => setView('all')} className={`px-3 py-1 text-xs rounded-md ${view === 'all' ? 'bg-cyan-600 text-white' : 'text-gray-300'}`}>All Time</button>
-                            <button onClick={() => setView('yearly')} className={`px-3 py-1 text-xs rounded-md ${view === 'yearly' ? 'bg-cyan-600 text-white' : 'text-gray-300'}`}>Yearly</button>
-                            <button onClick={() => setView('monthly')} className={`px-3 py-1 text-xs rounded-md ${view === 'monthly' ? 'bg-cyan-600 text-white' : 'text-gray-300'}`}>Monthly</button>
-                        </div>
+                        <select 
+                            value={view} 
+                            onChange={e => setView(e.target.value)} 
+                            className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300"
+                        >
+                            <option value="recent">Recent</option>
+                            <option value="yearly">Yearly</option>
+                            <option value="monthly">Monthly</option>
+                            <option value="all">All Time</option>
+                        </select>
                         {(view === 'yearly' || view === 'monthly') && (
-                            <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 bg-gray-700 rounded-md text-sm">
+                            <select 
+                                value={selectedYear} 
+                                onChange={e => setSelectedYear(Number(e.target.value))} 
+                                className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300"
+                            >
                                 {years.map(y => <option key={y} value={y}>{y}</option>)}
                             </select>
                         )}
                         {view === 'monthly' && (
-                            <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 bg-gray-700 rounded-md text-sm">
+                            <select 
+                                value={selectedMonth} 
+                                onChange={e => setSelectedMonth(Number(e.target.value))} 
+                                className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300"
+                            >
                                 {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
                             </select>
                         )}
@@ -3738,10 +3804,9 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                             onClick={handleExportExcel} 
                             disabled={isExportingExcel || isImporting} 
                             title="Export to Excel" 
-                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
+                            className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
-                            {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
-                            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                            {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18}/>}
                         </button>
                         {/* Excel Import Button */}
                         <input
@@ -3755,10 +3820,9 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                             onClick={() => importFileInputRef.current?.click()} 
                             disabled={isImporting || isExportingExcel} 
                             title="Import from Excel" 
-                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
+                            className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
-                            <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                            {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
                         </button>
                         {activeView !== 'pnl' ? (
                             <button onClick={() => { setEditingEntry(null); setShowModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa Entry">
@@ -4342,11 +4406,10 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         <button
                             onClick={handleExportExcel}
                             disabled={isExporting}
-                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 flex-1 shadow-md hover:shadow-lg hover:scale-105"
+                            className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                             title="Export Statements to Excel"
                         >
-                            {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                            <span>{isExporting ? 'Exporting...' : 'Export Excel'}</span>
+                            {isExporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
                         </button>
                         <input
                             ref={importFileInputRef}
@@ -4358,11 +4421,10 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         <button
                             onClick={() => importFileInputRef.current?.click()}
                             disabled={isImporting}
-                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 flex-1 shadow-md hover:shadow-lg hover:scale-105"
+                            className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                             title="Import Statements from Excel"
                         >
-                            {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                            <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                            {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18} />}
                         </button>
                     </div>
                 </div>
@@ -5474,11 +5536,10 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             <button
                 onClick={handleExportExcel}
                 disabled={isExporting}
-                className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
+                className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                 title="Export all company data to Excel"
             >
-                {isExporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                <span>{isExporting ? 'Exporting...' : 'Export Excel'}</span>
+                {isExporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
             </button>
 
             <input
@@ -5491,11 +5552,10 @@ const CompanySubNav = ({ activeSubPage, setActiveSubPage, userId, appId, collect
             <button
                 onClick={() => importFileInputRef.current?.click()}
                 disabled={isImporting}
-                className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
+                className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                 title="Import company data from Excel"
             >
-                {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18} />}
             </button>
         </nav>
     );
@@ -6382,6 +6442,44 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         updateTickedEntriesInFirestore(newSet);
     };
 
+    const handleDeleteSelected = () => {
+        if (tickedEntries.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedEntries.size} selected business entry(ies)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                
+                // Group entries by their collection path
+                const entriesByPath = {};
+                allBusinessEntries.forEach(entry => {
+                    if (tickedEntries.has(entry.id)) {
+                        if (!entriesByPath[entry.source_path]) {
+                            entriesByPath[entry.source_path] = [];
+                        }
+                        entriesByPath[entry.source_path].push(entry.id);
+                    }
+                });
+                
+                // Delete from their respective collections
+                for (const [path, entryIds] of Object.entries(entriesByPath)) {
+                    entryIds.forEach(entryId => {
+                        const entryRef = doc(db, `artifacts/${appId}/users/${userId}/${path}`, entryId);
+                        batch.delete(entryRef);
+                    });
+                }
+                
+                await batch.commit();
+                const newSet = new Set();
+                setTickedEntries(newSet);
+                updateTickedEntriesInFirestore(newSet);
+            }
+        });
+    };
+
     const predefinedCollectionPaths = useMemo(() => [
         'business_almarri',
         'business_fathoom',
@@ -7118,12 +7216,20 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                             <div className="flex items-center space-x-2 sm:space-x-4 flex-wrap gap-2 justify-center">
                                 <select value={view} onChange={e => setView(e.target.value)} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                                     <option value="recent">Recent</option>
-                                    <option value="monthly">Monthly</option>
                                     <option value="yearly">Yearly</option>
+                                    <option value="monthly">Monthly</option>
                                     <option value="all">All Time</option>
                                 </select>
-                                {(view === 'yearly' || view === 'monthly') && ( <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800"> {years.map(y => <option key={y} value={y}>{y}</option>)} </select> )}
-                                {view === 'monthly' && ( <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800"> {months.map((m, i) => <option key={m} value={i}>{m}</option>)} </select> )}
+                                {(view === 'yearly' || view === 'monthly') && (
+                                    <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
+                                        {years.map(y => <option key={y} value={y}>{y}</option>)}
+                                    </select>
+                                )}
+                                {view === 'monthly' && (
+                                    <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
+                                        {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
+                                    </select>
+                                )}
                             </div>
                             {/* --- MOVED FILTERS END --- */}
 
@@ -7171,15 +7277,28 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                             )}
                             {/* --- NEW FILTERS END --- */}
 
+                            {/* Delete and Clear Ticked Buttons */}
+                            {tickedEntries.size > 0 && (
+                                <>
+                                    <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                        <Trash2 size={16}/>
+                                        <span>Delete ({tickedEntries.size})</span>
+                                    </button>
+                                    <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                        <X size={16}/>
+                                        <span>Clear ({tickedEntries.size})</span>
+                                    </button>
+                                </>
+                            )}
+
                             {/* Excel Export Button */}
                             <button 
                                 onClick={handleExportExcel} 
                                 disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
                                 title="Export Business (BS1) to Excel" 
-                                className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
+                                className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
-                                {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
-                                <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                                {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18}/>}
                             </button>
                             {/* Excel Import Button */}
                             <input
@@ -7193,10 +7312,9 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                                 onClick={() => importFileInputRef.current?.click()} 
                                 disabled={isImporting || isExportingExcel || isExporting || isClearingData} 
                                 title="Import Business (BS1) from Excel" 
-                                className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
+                                className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
-                                {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
-                                <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                                {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
                             </button>
                             {/* Clear All Button */}
                             <button onClick={handleClearBusinessData} disabled={isClearingData || isExportingExcel} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
@@ -8404,6 +8522,27 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
         updateTickedInFirestore(newSet);
     };
 
+    const handleDeleteSelected = () => {
+        if (tickedEmployees.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedEmployees.size} selected employee(s)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                tickedEmployees.forEach(employeeId => {
+                    batch.delete(doc(employeesRef, employeeId));
+                });
+                await batch.commit();
+                const newSet = new Set();
+                setTickedEmployees(newSet);
+                updateTickedInFirestore(newSet);
+            }
+        });
+    };
+
     const handlePayCardCancelled = async (employeeId) => {
         const employeeDocRef = doc(employeesRef, employeeId);
         await updateDoc(employeeDocRef, {
@@ -9048,14 +9187,18 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                         <button onClick={() => setShowPayCardModal(true)} title="View Pay Cards" className="p-2.5 dark:bg-gray-600 bg-gray-200 text-sm rounded-md dark:hover:bg-gray-500 hover:bg-gray-300 no-print border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
                             <IdCard size={16}/>
                         </button>
-                        <button onClick={handleClearAllEmployees} disabled={isClearingData || isExportingExcel} title="Clear All Employee Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                            {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
-                        </button>
+                        {/* Removed Clear All Employee Data button for CO1/CO2 employees pages */}
                         {tickedEmployees.size > 0 && (
-                            <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
-                                <X size={16}/>
-                                <span>Clear ({tickedEmployees.size})</span>
-                            </button>
+                            <>
+                                <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                    <Trash2 size={16}/>
+                                    <span>Delete ({tickedEmployees.size})</span>
+                                </button>
+                                <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                    <X size={16}/>
+                                    <span>Clear ({tickedEmployees.size})</span>
+                                </button>
+                            </>
                         )}
                         <button onClick={() => { setEditingEmployee(null); setShowModal(true); }} title="Add Employee" className="p-2.5 bg-cyan-500 rounded-md hover:bg-cyan-600 transition-colors">
                             <UserPlus size={18}/>
@@ -9484,7 +9627,7 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
 
     const handleToggleAllTicks = (entryList) => {
         const allIds = entryList.map(e => e.id);
-        const allAreTicked = allIds.length > 0 && allIds.every(id => tickedEntries.has(e.id));
+        const allAreTicked = allIds.length > 0 && allIds.every(id => tickedEntries.has(id));
 
         setTickedEntries(prev => {
             const newSet = new Set(prev);
@@ -9502,6 +9645,28 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
         const newSet = new Set();
         setTickedEntries(newSet);
         updateTickedInFirestore(newSet); // Save to Firestore
+    };
+
+    const handleDeleteSelected = () => {
+        if (tickedEntries.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedEntries.size} selected ledger entry(ies)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const ledgerRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
+                const batch = writeBatch(db);
+                tickedEntries.forEach(entryId => {
+                    batch.delete(doc(ledgerRef, entryId));
+                });
+                await batch.commit();
+                const newSet = new Set();
+                setTickedEntries(newSet);
+                updateTickedInFirestore(newSet);
+            }
+        });
     };
 
     const defaultCategories = useMemo(() => ({
@@ -10456,11 +10621,10 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                     <button
                         onClick={handleExportLedgerExcel}
                         disabled={isExportingExcel || isImporting}
-                        className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
+                        className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                         title="Export Ledger to Excel"
                     >
-                        {isExportingExcel ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                        <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                        {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
                     </button>
                     
                     {/* Hidden File Input for Excel Import */}
@@ -10476,11 +10640,10 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                     <button
                         onClick={triggerLedgerImport}
                         disabled={isImporting || isExportingExcel}
-                        className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
+                        className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                         title="Import Ledger from Excel"
                     >
-                        {isImporting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
-                        <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                        {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18} />}
                     </button>
                 </div>
             </nav>
@@ -10550,10 +10713,16 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                         <h2 className="text-xl font-bold">General Ledger</h2>
                         <div className="flex items-center space-x-2 no-print flex-wrap gap-2">
                             {tickedEntries.size > 0 && (
-                                <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
-                                    <X size={16}/>
-                                    <span>Clear ({tickedEntries.size})</span>
-                                </button>
+                                <>
+                                    <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                        <Trash2 size={16}/>
+                                        <span>Delete ({tickedEntries.size})</span>
+                                    </button>
+                                    <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                        <X size={16}/>
+                                        <span>Clear ({tickedEntries.size})</span>
+                                    </button>
+                                </>
                             )}
                             <button onClick={handleClearLedgerData} disabled={isClearingData || isExportingExcel} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                                 {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
@@ -10578,12 +10747,12 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                                         {categories[mainCategoryFilter].map(subCat => <option key={subCat} value={subCat}>{subCat}</option>)}
                                     </select>
                                 )}
-                                <div className="flex items-center space-x-1 dark:bg-gray-700 bg-gray-200 p-1 rounded-lg border dark:border-gray-600 border-gray-300">
-                                    <button onClick={() => setView('recent')} className={`px-3 py-1 text-sm rounded-md ${view === 'recent' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Recent</button>
-                                    <button onClick={() => setView('monthly')} className={`px-3 py-1 text-sm rounded-md ${view === 'monthly' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Monthly</button>
-                                    <button onClick={() => setView('yearly')} className={`px-3 py-1 text-sm rounded-md ${view === 'yearly' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Yearly</button>
-                                    <button onClick={() => setView('all')} className={`px-3 py-1 text-sm rounded-md ${view === 'all' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>All Time</button>
-                                </div>
+                                <select value={view} onChange={e => setView(e.target.value)} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
+                                    <option value="recent">Recent</option>
+                                    <option value="monthly">Monthly</option>
+                                    <option value="yearly">Yearly</option>
+                                    <option value="all">All Time</option>
+                                </select>
                                 {(view === 'yearly' || view === 'monthly') && (
                                     <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                                         {years.map(y => <option key={y} value={y}>{y}</option>)}
@@ -10874,6 +11043,27 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
         const newSet = new Set();
         setTickedEntries(newSet);
         updateTickedInFirestore(newSet);
+    };
+
+    const handleDeleteSelected = () => {
+        if (tickedEntries.size === 0) return;
+        
+        setConfirmAction({
+            title: 'Confirm Bulk Delete',
+            message: `Are you sure you want to delete ${tickedEntries.size} selected debt/credit entry(ies)? This action cannot be undone.`,
+            confirmText: 'Delete All',
+            type: 'delete',
+            action: async () => {
+                const batch = writeBatch(db);
+                tickedEntries.forEach(entryId => {
+                    batch.delete(doc(pageRef, entryId));
+                });
+                await batch.commit();
+                const newSet = new Set();
+                setTickedEntries(newSet);
+                updateTickedInFirestore(newSet);
+            }
+        });
     };
 
     const handleExportJson = async () => {
@@ -11568,19 +11758,17 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                             onClick={handleExportExcel} 
                             disabled={isExportingExcel || isImporting} 
                             title="Export to Excel" 
-                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
+                            className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
-                            {isExportingExcel ? <Loader2 size={16} className="animate-spin" /> : <FileCheck2 size={16}/>}
-                            <span>{isExportingExcel ? 'Exporting...' : 'Export Excel'}</span>
+                            {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18}/>}
                         </button>
                         <button 
                             onClick={triggerImport} 
                             disabled={isImporting || isExportingExcel} 
                             title="Import from Excel" 
-                            className="group flex items-center space-x-2 px-4 py-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 text-sm font-semibold transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
+                            className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105"
                         >
-                            {isImporting ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16}/>}
-                            <span>{isImporting ? 'Importing...' : 'Import Excel'}</span>
+                            {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
                         </button>
                         <input
                             type="file"
@@ -11599,10 +11787,16 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                         {activeView === 'active' && (
                             <>
                                 {tickedEntries.size > 0 && (
-                                    <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
-                                        <X size={16}/>
-                                        <span>Clear ({tickedEntries.size})</span>
-                                    </button>
+                                    <>
+                                        <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
+                                            <Trash2 size={16}/>
+                                            <span>Delete ({tickedEntries.size})</span>
+                                        </button>
+                                        <button onClick={handleClearTicks} className="flex items-center space-x-2 p-2.5 bg-yellow-500 text-white rounded-md hover:bg-yellow-600 transition-colors text-sm">
+                                            <X size={16}/>
+                                            <span>Clear ({tickedEntries.size})</span>
+                                        </button>
+                                    </>
                                 )}
                                 <div className="relative">
                                    <input 
@@ -11633,14 +11827,14 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                                 <select value={view} onChange={e => setView(e.target.value)} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                                     <option value="yearly">Yearly</option>
                                     <option value="monthly">Monthly</option>
-                                <option value="all">All Time</option>
-                            </select>
-                            {(view === 'yearly' || view === 'monthly') && years.length > 0 && (
+                                    <option value="all">All Time</option>
+                                </select>
+                                {(view === 'yearly' || view === 'monthly') && years.length > 0 && (
                                 <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                                     {years.map(y => <option key={y} value={y}>{y}</option>)}
                                 </select>
-                            )}
-                            {view === 'monthly' && (
+                                )}
+                                {view === 'monthly' && (
                                 <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                                         {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
                                     </select>
@@ -11710,6 +11904,7 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                                                     <button onClick={() => setEditingEntry(entry)} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button> 
                                                     <button onClick={() => handleMarkAsBadDebtRequest(entry)} className="p-1.5 hover:text-orange-400" title="Mark as Bad Debt"><TrendingDown size={14}/></button> 
                                                     <button onClick={() => handleSettleRequest(entry)} className="p-1.5 hover:text-green-400" title="Settle"><CheckCircle size={14}/></button> 
+                                                    <button onClick={() => onDeleteRequest(entry.id)} className="p-1.5 hover:text-red-400" title="Delete"><Trash2 size={14}/></button> 
                                                 </div> 
                                             </td> 
                                         </tr>
@@ -12280,8 +12475,8 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
             // Export current report data
             if (activeReport === 'pnl') {
                 const pnlData = [
-                    { Category: 'Revenue', Amount: totalRevenue },
-                    { Category: 'Expenses', Amount: totalExpenses },
+                    { Category: 'Revenue', Amount: totalIncome },
+                    { Category: 'Expenses', Amount: totalExpense },
                     { Category: 'Net Profit', Amount: netProfit }
                 ];
                 const pnlSheet = window.XLSX.utils.json_to_sheet(pnlData);
@@ -12391,18 +12586,18 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
                     <span>Cash Flow</span>
                 </button>
                 <div className="flex items-center space-x-2 ml-4">
-                    <select value={view} onChange={e => setView(e.target.value)} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300 text-xs">
-                        <option value="all">All Time</option>
+                    <select value={view} onChange={e => setView(e.target.value)} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                         <option value="yearly">Yearly</option>
                         <option value="monthly">Monthly</option>
+                        <option value="all">All Time</option>
                     </select>
-                    {view !== 'all' && (
-                        <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300 text-xs">
+                    {(view === 'yearly' || view === 'monthly') && (
+                        <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                             {years.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     )}
                     {view === 'monthly' && (
-                        <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300 text-xs">
+                        <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                             {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
                         </select>
                     )}
@@ -12412,11 +12607,10 @@ const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
                     <button
                         onClick={handleExportExcel}
                         disabled={isExporting}
-                        className="flex items-center space-x-1 px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-md text-xs font-semibold transition-colors disabled:opacity-50"
+                        className="p-2 bg-green-600 hover:bg-green-700 text-white rounded-full transition-colors disabled:opacity-50"
                         title="Export Financial Report to Excel"
                     >
-                        <Download className="h-4 w-4" />
-                        <span className="hidden sm:inline">Export Excel</span>
+                        {isExporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18} />}
                     </button>
                 </div>
             </div>
@@ -14084,10 +14278,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                 <div>
                     <h3 className="text-lg font-semibold mb-2 text-orange-400">Other Actions</h3>
                     <div className="flex items-center gap-4 flex-wrap">
-                        <button onClick={handleDownloadPdfClick} disabled={isDownloading || isClearingData} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-600 bg-red-100 rounded-md dark:hover:bg-red-700 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                            {isDownloading ? <Loader2 className="animate-spin" /> : <FileText size={18} />}
-                            <span>{isDownloading ? 'Generating PDF...' : 'Download PDF Report'}</span>
-                        </button>
                         <button onClick={handleClearAllData} disabled={isClearingData || isImporting || isExporting || isImportingExcel || isExportingExcel} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
                             {isClearingData ? <Loader2 className="animate-spin" /> : <AlertTriangle size={18}/>}
                             <span>{isClearingData ? 'Clearing Data...' : 'Clear All Data'}</span>

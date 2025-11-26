@@ -7393,6 +7393,36 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
         [appId, userId, collectionPath, initialData?.id]
     );
     
+    // Real-time listener to sync document updates
+    useEffect(() => {
+        if (!employeeDocRef) return;
+        
+        console.log('[EMPLOYEE MODAL] Setting up real-time listener for:', initialData?.id);
+        const unsubscribe = onSnapshot(employeeDocRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                console.log('[EMPLOYEE MODAL] Document updated from Firestore:', data);
+                setFormData(prev => ({
+                    ...prev,
+                    ...data,
+                    qidExpiry: formatDate(data.qidExpiry),
+                    joinDate: formatDate(data.joinDate),
+                    departedDate: formatDate(data.departedDate),
+                    passportExpiry: formatDate(data.passportExpiry),
+                    payCardExpiry: formatDate(data.payCardExpiry),
+                    labourContractExpiry: formatDate(data.labourContractExpiry),
+                }));
+            }
+        }, (error) => {
+            console.error('[EMPLOYEE MODAL] Listener error:', error);
+        });
+        
+        return () => {
+            console.log('[EMPLOYEE MODAL] Cleaning up listener');
+            unsubscribe();
+        };
+    }, [employeeDocRef]);
+    
     const handleChange = (e) => {
         const { name, value, type, checked } = e.target;
         setFormData(prev => ({ ...prev, [name]: type === 'checkbox' ? checked : value }));
@@ -7519,22 +7549,39 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
             const downloadURL = await getDownloadURL(storageRef);
             console.log('[EMPLOYEE MODAL] Download URL:', downloadURL);
             
+            // Determine the correct URL field name (settle -> settleDocUrl, others -> typeUrl)
+            const actualUrlField = type === 'settle' ? 'settleDocUrl' : `${type}Url`;
+            const actualStoragePathField = type === 'settle' ? 'settleStoragePath' : `${type}StoragePath`;
+            
+            console.log('[EMPLOYEE MODAL] Field mapping:', { type, actualUrlField, actualStoragePathField });
+            console.log('[EMPLOYEE MODAL] Updating Firestore with:', {
+                [type]: true,
+                [actualUrlField]: downloadURL,
+                [actualStoragePathField]: storagePath
+            });
+            
             // Update Firestore immediately
             const employeesRef = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`);
             await updateDoc(doc(employeesRef, initialData.id), {
                 [`${type}`]: true,
-                [`${type}Url`]: downloadURL,
-                [`${type}StoragePath`]: storagePath,
+                [actualUrlField]: downloadURL,
+                [actualStoragePathField]: storagePath,
                 updatedAt: new Date()
             });
 
+            console.log('[EMPLOYEE MODAL] Firestore updated successfully');
+
             // Update local form state
-            setFormData(prev => ({
-                ...prev,
-                [type]: true,
-                [`${type}Url`]: downloadURL,
-                [`${type}StoragePath`]: storagePath
-            }));
+            setFormData(prev => {
+                const updated = {
+                    ...prev,
+                    [type]: true,
+                    [actualUrlField]: downloadURL,
+                    [actualStoragePathField]: storagePath
+                };
+                console.log('[EMPLOYEE MODAL] Updated formData:', updated);
+                return updated;
+            });
             
             setDocUploadStates(prev => ({ ...prev, [type]: { uploading: false, error: null } }));
         } catch (err) {
@@ -8616,10 +8663,17 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
             console.log('Upload complete, getting download URL...');
             const downloadURL = await getDownloadURL(storageRef);
             console.log('Download URL obtained:', downloadURL);
+            
+            // Determine the correct URL field name (settle -> settleDocUrl, others -> typeUrl)
+            const actualUrlField = type === 'settle' ? 'settleDocUrl' : `${type}Url`;
+            const actualStoragePathField = type === 'settle' ? 'settleStoragePath' : `${type}StoragePath`;
+            
+            console.log('Saving to Firestore fields:', { type, actualUrlField, actualStoragePathField });
+            
             await updateDoc(doc(employeesRef, employeeId), {
                 [`${type}`]: true, // keep existing boolean semantics
-                [`${type}Url`]: downloadURL,
-                [`${type}StoragePath`]: storagePath,
+                [actualUrlField]: downloadURL,
+                [actualStoragePathField]: storagePath,
                 updatedAt: new Date()
             });
             console.log('Firestore updated successfully');
@@ -11904,7 +11958,6 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
                                                     <button onClick={() => setEditingEntry(entry)} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button> 
                                                     <button onClick={() => handleMarkAsBadDebtRequest(entry)} className="p-1.5 hover:text-orange-400" title="Mark as Bad Debt"><TrendingDown size={14}/></button> 
                                                     <button onClick={() => handleSettleRequest(entry)} className="p-1.5 hover:text-green-400" title="Settle"><CheckCircle size={14}/></button> 
-                                                    <button onClick={() => onDeleteRequest(entry.id)} className="p-1.5 hover:text-red-400" title="Delete"><Trash2 size={14}/></button> 
                                                 </div> 
                                             </td> 
                                         </tr>

@@ -2683,7 +2683,9 @@ const NotificationPage = ({ userId, appId }) => {
         employees: [],
         vehicles: [],
         docs_creds: [],
-        debts_credits: []
+        debts_credits: [],
+        business: [],
+        visas: []
     });
     const [loading, setLoading] = useState(true);
     const [liveData, setLiveData] = useState({});
@@ -2743,7 +2745,9 @@ const NotificationPage = ({ userId, appId }) => {
             employees: [],
             vehicles: [],
             docs_creds: [],
-            debts_credits: []
+            debts_credits: [],
+            business: [],
+            visas: []
         };
         
         const today = new Date();
@@ -3009,6 +3013,21 @@ const NotificationPage = ({ userId, appId }) => {
             }
         });
 
+        // --- BUSINESS ---
+        (liveData['business_recruitments'] || []).forEach(item => {
+            const balance = (item.sold || 0) - (item.received || 0);
+            if (balance > 0) {
+                notificationsBySource.business.push({
+                    id: item.id,
+                    title: `Recruitment Balance for ${item.name}`,
+                    description: `Pending Balance: ${formatCurrency(balance)}`,
+                    date: null, // No date for balance
+                    isExpired: false,
+                    source: 'Business',
+                });
+            }
+        });
+
         // Sort each category by date
         for (const key in notificationsBySource) {
             notificationsBySource[key].sort((a, b) => {
@@ -3045,7 +3064,11 @@ const NotificationPage = ({ userId, appId }) => {
         debts_credits: {
             heading: 'text-rose-400 border-rose-500',
             bg: 'dark:bg-rose-900/10'
-        }
+        },
+        business: {
+            heading: 'text-lime-400 border-lime-500',
+            bg: 'dark:bg-lime-900/10'
+        },
     };
 
     const hasNotifications = Object.values(notifications).some(arr => arr.length > 0);
@@ -3089,11 +3112,13 @@ const NotificationPage = ({ userId, appId }) => {
                     ) : !hasNotifications ? (
                         <div className="text-center text-gray-500 py-8">No urgent notifications. Everything is up to date!</div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
                             <NotificationGroup title="Employees" items={notifications.employees} icon={<Users size={24}/>} colorConfig={notificationColors.employees} />
                             <NotificationGroup title="Vehicles" items={notifications.vehicles} icon={<Car size={24}/>} colorConfig={notificationColors.vehicles} />
+                            <NotificationGroup title="Visa Expiries" items={notifications.visas} icon={<IdCard size={24}/>} colorConfig={notificationColors.visas} />
                             <NotificationGroup title="Documents & Credentials" items={notifications.docs_creds} icon={<IdCard size={24}/>} colorConfig={notificationColors.docs_creds} />
                             <NotificationGroup title="Debts & Credits" items={notifications.debts_credits} icon={<HandCoins size={24}/>} colorConfig={notificationColors.debts_credits} />
+                            <NotificationGroup title="Business" items={notifications.business} icon={<Briefcase size={24}/>} colorConfig={notificationColors.business} />
                         </div>
                     )}
                 </div>
@@ -3137,18 +3162,9 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [showModal, setShowModal] = useState(false);
     const [editingEntry, setEditingEntry] = useState(null);
     const [activeView, setActiveView] = useState('new'); // 'new', 'processing', 'issued', 'others'
-    const [view, setView] = useState(() => {
-        const saved = localStorage.getItem('dashboard_visa_view');
-        return saved || 'yearly';
-    });
-    const [selectedYear, setSelectedYear] = useState(() => {
-        const saved = localStorage.getItem('dashboard_visa_year');
-        return saved ? Number(saved) : new Date().getFullYear();
-    });
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const saved = localStorage.getItem('dashboard_visa_month');
-        return saved ? Number(saved) : new Date().getMonth();
-    });
+    const [view, setView] = useState('yearly');
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const entriesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/visa_entries`), [userId, appId]);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -3175,19 +3191,6 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [showNoteModal, setShowNoteModal] = useState(false);
 
     const tickedItemsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/visaSettings/tickedItems`), [userId, appId]);
-
-    // Persist time filter selections
-    useEffect(() => {
-        localStorage.setItem('dashboard_visa_view', view);
-    }, [view]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_visa_year', selectedYear.toString());
-    }, [selectedYear]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_visa_month', selectedMonth.toString());
-    }, [selectedMonth]);
 
     // Load pinned visas
     useEffect(() => {
@@ -5418,27 +5421,17 @@ const PasscodeSettingsPage = ({ userId, appId, setConfirmAction }) => {
 // --- Main App Component ---
 export default function App() {
     const [showLanding, setShowLanding] = useState(true); // Show landing page initially
-    const [currentPage, setCurrentPage] = useState(() => {
-        const saved = localStorage.getItem('dashboard_currentPage');
-        return saved || 'notification';
-    });
-    const [activeSubPage, setActiveSubPage] = useState(() => {
-        const saved = localStorage.getItem('dashboard_activeSubPage');
-        return saved || 'employees';
-    });
+    const [currentPage, setCurrentPage] = useState('notification');
+    const [activeSubPage, setActiveSubPage] = useState('employees');
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [appId, setAppId] = useState('default-app-id');
-    const [theme, setTheme] = useState(() => {
-        const saved = localStorage.getItem('dashboard_theme');
-        return saved || 'dark';
-    });
+    const [theme, setTheme] = useState('dark');
     const [lastAction, setLastAction] = useState(null);
     const [showUndoMessage, setShowUndoMessage] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showSearchModal, setShowSearchModal] = useState(false);
-    const [showMonthlyPdfReminder, setShowMonthlyPdfReminder] = useState(false);
     const [isLocked, setIsLocked] = useState(true); // Start locked
     const [passcodeSettings, setPasscodeSettings] = useState(null); // { hash: '...', hint: '...' }
     const [passcodeLoading, setPasscodeLoading] = useState(true);
@@ -5536,19 +5529,7 @@ export default function App() {
         setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
     };
 
-    // Persist currentPage to localStorage
     useEffect(() => {
-        localStorage.setItem('dashboard_currentPage', currentPage);
-    }, [currentPage]);
-
-    // Persist activeSubPage to localStorage
-    useEffect(() => {
-        localStorage.setItem('dashboard_activeSubPage', activeSubPage);
-    }, [activeSubPage]);
-
-    // Persist theme to localStorage and apply dark class
-    useEffect(() => {
-        localStorage.setItem('dashboard_theme', theme);
         // Tailwind's dark variant expects a parent with 'dark' class; ensure both <html> and <body> reflect theme
         const root = document.documentElement;
         const body = document.body;
@@ -5560,46 +5541,6 @@ export default function App() {
             body.classList.remove('dark');
         }
     }, [theme]);
-
-    // Check for end-of-month and show PDF reminder
-    useEffect(() => {
-        if (!user || showLanding) return;
-        
-        const checkMonthlyReminder = () => {
-            const today = new Date();
-            const currentDay = today.getDate();
-            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
-            const isEndOfMonth = currentDay >= lastDayOfMonth - 2; // Last 3 days of month
-            
-            if (isEndOfMonth) {
-                const lastPdfSave = localStorage.getItem('dashboard_lastPdfSave');
-                const lastSaveDate = lastPdfSave ? new Date(lastPdfSave) : null;
-                
-                // Check if we haven't saved this month yet
-                const shouldShowReminder = !lastSaveDate || 
-                    lastSaveDate.getMonth() !== today.getMonth() || 
-                    lastSaveDate.getFullYear() !== today.getFullYear();
-                
-                // Check if we've dismissed the reminder today
-                const reminderDismissed = localStorage.getItem('dashboard_reminderDismissed');
-                const dismissedDate = reminderDismissed ? new Date(reminderDismissed) : null;
-                const isDismissedToday = dismissedDate && 
-                    dismissedDate.getDate() === today.getDate() &&
-                    dismissedDate.getMonth() === today.getMonth() &&
-                    dismissedDate.getFullYear() === today.getFullYear();
-                
-                if (shouldShowReminder && !isDismissedToday) {
-                    setShowMonthlyPdfReminder(true);
-                }
-            }
-        };
-        
-        // Check on mount and daily
-        checkMonthlyReminder();
-        const interval = setInterval(checkMonthlyReminder, 24 * 60 * 60 * 1000); // Check daily
-        
-        return () => clearInterval(interval);
-    }, [user, showLanding]);
 
     const handleDownloadReport = async () => {
         if (!window.jspdf || !window.html2canvas) { console.error("PDF libraries are not loaded yet."); return; }
@@ -5614,28 +5555,15 @@ export default function App() {
                 elementsToHide.forEach(el => el.style.visibility = 'hidden');
 
                 const canvas = await window.html2canvas(elementToPrint, { 
-                    scale: 3,
-                    useCORS: true,
-                    allowTaint: true,
-                    logging: false,
-                    backgroundColor: theme === 'dark' ? '#111827' : '#ffffff',
-                    windowWidth: elementToPrint.scrollWidth,
-                    windowHeight: elementToPrint.scrollHeight,
-                    scrollX: 0,
-                    scrollY: 0,
-                    imageTimeout: 15000,
-                    removeContainer: true
+                    scale: 2,
+                    backgroundColor: theme === 'dark' ? '#111827' : '#ffffff' 
                 });
                 
                 elementsToHide.forEach(el => el.style.visibility = 'visible');
 
-                const imgData = canvas.toDataURL('image/png', 1.0); const imgProps = pdf.getImageProperties(imgData); const pdfWidth = pdf.internal.pageSize.getWidth(); const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width; if (pagesToExport.indexOf(pageId) > 0) { pdf.addPage(); } pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST'); resolve(); }, 1500); });
+                const imgData = canvas.toDataURL('image/png'); const imgProps = pdf.getImageProperties(imgData); const pdfWidth = pdf.internal.pageSize.getWidth(); const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width; if (pagesToExport.indexOf(pageId) > 0) { pdf.addPage(); } pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight); resolve(); }, 1000); });
         }
-        const today = new Date();
-        const fileName = `dashboard_report_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}.pdf`;
-        pdf.save(fileName); setCurrentPage(originalPage);
-        // Update last PDF save date
-        localStorage.setItem('dashboard_lastPdfSave', today.toISOString());
+        pdf.save("financial_report.pdf"); setCurrentPage(originalPage);
     };
     
     const handlePageChange = (page) => {
@@ -5757,7 +5685,7 @@ export default function App() {
     }
 
     return (
-        <div className={`${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'} min-h-screen font-sans transition-colors duration-300`}>
+        <div className={`${theme === 'dark' ? 'bg-gray-900 text-white' : 'bg-gray-100 text-gray-800'} min-h-screen font-sans transition-colors duration-300 overflow-x-hidden`}>
             <style>{`
                 .force-light-text.force-light-text, 
                 .force-light-text .text-white,
@@ -5821,23 +5749,6 @@ export default function App() {
             {renderPage()}
             {showSettingsModal && <NavigationSettingsModal userId={user?.uid} appId={appId} onClose={() => setShowSettingsModal(false)} />}
             {showSearchModal && <UniversalSearchModal userId={user?.uid} appId={appId} onClose={() => setShowSearchModal(false)} />}
-            {showMonthlyPdfReminder && (
-                <MonthlyPdfReminderModal 
-                    onDownload={() => {
-                        setShowMonthlyPdfReminder(false);
-                        handleDownloadReport();
-                    }}
-                    onDismiss={() => {
-                        setShowMonthlyPdfReminder(false);
-                        localStorage.setItem('dashboard_reminderDismissed', new Date().toISOString());
-                    }}
-                    onClose={() => {
-                        setShowMonthlyPdfReminder(false);
-                        const today = new Date();
-                        localStorage.setItem('dashboard_lastPdfSave', today.toISOString());
-                    }}
-                />
-            )}
             {confirmAction && <ConfirmationModal details={confirmAction} onConfirm={handleConfirm} onCancel={() => setConfirmAction(null)} />}
             {showUndoMessage && ( <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-[101]"> {showUndoMessage} </div> )}
         </div>
@@ -5887,31 +5798,31 @@ const Header = ({ userId, appId, onUndoClick, toggleTheme, theme, currentPage, s
     }, [settingsRef]);
 
     return (
-        <header className="dark:bg-gray-800 bg-white dark:text-white text-gray-800 pt-20 pb-4 px-3 sticky top-0 z-50 shadow-md flex items-center justify-between w-full flex-wrap gap-4">
-            <div className="flex items-center space-x-4 flex-1 min-w-[200px] -mt-28 order-1">
+        <header className="dark:bg-gray-800 bg-white dark:text-white text-gray-800 py-2 px-2 sticky top-0 z-50 shadow-md flex items-center justify-between w-full gap-2 overflow-hidden">
+            <div className="flex flex-col items-start space-y-0.5 flex-shrink-0 min-w-fit text-xs">
                 <DateTimeLocationBadge />
                 <LastUpdatedBadge />
             </div>
 
-            <nav className="flex items-center justify-center space-x-1 sm:space-x-2 flex-grow my-4 md:my-0 order-3 sm:order-2 w-full sm:w-auto">
+            <nav className="flex items-center justify-center space-x-1 sm:space-x-1.5 flex-grow order-3 sm:order-2 flex-shrink-0 min-w-0">
                  {/* Restore the mapping of navLinks */}
                  {navLinks.map(page => (
                     <button
                         key={page.id}
                         onClick={() => setCurrentPage(page.id)}
-                        className={`flex items-center space-x-2 px-4 py-3 text-sm sm:text-base font-bold rounded-full transition-all duration-300 transform hover:scale-105 flex-grow sm:flex-grow-0 ${
+                        className={`flex items-center space-x-2 px-4 py-3 text-sm sm:text-base font-bold rounded-full transition-all duration-300 transform hover:scale-105 flex-shrink-0 whitespace-nowrap ${
                             currentPage === page.id
                                 ? `bg-gradient-to-r ${page.gradient} text-white shadow-lg`
                                 : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300'
                         }`}
                     >
                         {page.icon}
-                        <span className="hidden sm:inline">{page.title}</span>
+                        <span className="hidden sm:inline text-sm">{page.title}</span>
                     </button>
                 ))}
             </nav>
 
-            <div className="flex items-center space-x-2 flex-1 justify-end min-w-[150px] order-2 sm:order-3">
+            <div className="flex flex-col items-end space-y-0.5 flex-shrink-0 min-w-fit order-2 sm:order-3">
                 {userDisplayName && (
                     <div className="hidden md:flex items-center space-x-2 px-3 py-1 bg-gradient-to-r from-cyan-500/10 to-blue-500/10 border border-cyan-500/20 rounded-lg">
                         <User size={16} className="text-cyan-400" />
@@ -6516,54 +6427,6 @@ const LockScreen = ({ onUnlock, hint, correctHash }) => {
     );
 };
 
-// Monthly PDF Reminder Modal
-const MonthlyPdfReminderModal = ({ onDownload, onDismiss, onClose }) => {
-    const today = new Date();
-    const monthName = today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
-    
-    return (
-        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[200] p-4">
-            <div className="dark:bg-gray-800 bg-white p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
-                <div className="mb-6">
-                    <FileText size={64} className="mx-auto text-cyan-400 mb-4" />
-                    <h3 className="text-2xl font-bold mb-2 dark:text-white text-gray-800">End of Month Reminder</h3>
-                    <p className="dark:text-gray-300 text-gray-600 mb-2">
-                        It's the end of <span className="font-semibold text-cyan-400">{monthName}</span>
-                    </p>
-                    <p className="dark:text-gray-400 text-gray-500 text-sm">
-                        Would you like to save your dashboard as PDF for your records?
-                    </p>
-                </div>
-                
-                <div className="flex flex-col space-y-3">
-                    <button 
-                        onClick={onDownload}
-                        className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition-colors font-medium"
-                    >
-                        <Download size={20} />
-                        <span>Save Dashboard as PDF</span>
-                    </button>
-                    
-                    <div className="flex space-x-3">
-                        <button 
-                            onClick={onDismiss}
-                            className="flex-1 px-6 py-2 dark:bg-gray-700 bg-gray-200 dark:text-gray-300 text-gray-700 rounded-md dark:hover:bg-gray-600 hover:bg-gray-300 transition-colors text-sm"
-                        >
-                            Remind Me Tomorrow
-                        </button>
-                        <button 
-                            onClick={onClose}
-                            className="flex-1 px-6 py-2 dark:bg-gray-700 bg-gray-200 dark:text-gray-300 text-gray-700 rounded-md dark:hover:bg-gray-600 hover:bg-gray-300 transition-colors text-sm"
-                        >
-                            Not This Month
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
-
 const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAction, currency }) => {
     const [entries, setEntries] = useState([]);
     const [showModal, setShowModal] = useState(false);
@@ -6571,37 +6434,15 @@ const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmA
     const [employees, setEmployees] = useState([]);
     const employeeNames = useMemo(() => employees.map(e => e.fullName).filter(Boolean).sort(), [employees]);
 
-    const [view, setView] = useState(() => {
-        const saved = localStorage.getItem('dashboard_employeePnl_view');
-        return saved || 'all';
-    });
-    const [selectedYear, setSelectedYear] = useState(() => {
-        const saved = localStorage.getItem('dashboard_employeePnl_year');
-        return saved ? Number(saved) : new Date().getFullYear();
-    });
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const saved = localStorage.getItem('dashboard_employeePnl_month');
-        return saved ? Number(saved) : new Date().getMonth();
-    });
+    const [view, setView] = useState('all');
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [searchTerm, setSearchTerm] = useState('');
     const [tickedEntries, setTickedEntries] = useState(new Set());
 
     const entriesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
     const companyPrefix = collectionPath.replace('EmployeePnl', '');
     const employeeDataRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${companyPrefix}Data`), [userId, appId, companyPrefix]);
-
-    // Persist time filter selections
-    useEffect(() => {
-        localStorage.setItem('dashboard_employeePnl_view', view);
-    }, [view]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_employeePnl_year', selectedYear.toString());
-    }, [selectedYear]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_employeePnl_month', selectedMonth.toString());
-    }, [selectedMonth]);
 
     useEffect(() => {
         const unsubEntries = onSnapshot(entriesRef, snapshot => {
@@ -7257,18 +7098,9 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     const [isExportingExcel, setIsExportingExcel] = useState(false); // <-- Add this new state
     const importFileInputRef = useRef(null);
 
-    const [view, setView] = useState(() => {
-        const saved = localStorage.getItem('dashboard_business_view');
-        return saved || 'recent';
-    });
-    const [selectedYear, setSelectedYear] = useState(() => {
-        const saved = localStorage.getItem('dashboard_business_year');
-        return saved ? Number(saved) : new Date().getFullYear();
-    });
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const saved = localStorage.getItem('dashboard_business_month');
-        return saved ? Number(saved) : new Date().getMonth();
-    });
+    const [view, setView] = useState('recent');
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [nameFilter, setNameFilter] = useState('');
     const [descriptionFilter, setDescriptionFilter] = useState('');
     const [showNameFilter, setShowNameFilter] = useState(false);
@@ -7293,19 +7125,6 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     const businessDescriptionsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/settings/businessDescriptions`), [userId, appId]);
 
     const tickedEntriesRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/businessSettings/tickedEntries`), [userId, appId]);
-
-    // Persist time filter selections
-    useEffect(() => {
-        localStorage.setItem('dashboard_business_view', view);
-    }, [view]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_business_year', selectedYear.toString());
-    }, [selectedYear]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_business_month', selectedMonth.toString());
-    }, [selectedMonth]);
 
     const updateTickedEntriesInFirestore = useCallback(async (newSet) => {
         if (!tickedEntriesRef) return;
@@ -7581,14 +7400,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     // Helper to format data for Excel
     const processAndAddSheet = (data, sheetName, wb) => {
         if (data.length === 0) return;
-        // Sort data by date in ascending order
-        const sortedData = [...data].sort((a, b) => {
-            const dateA = getDateFromField(a.date) || new Date(0);
-            const dateB = getDateFromField(b.date) || new Date(0);
-            return dateA - dateB;
-        });
-        
-        const formattedData = sortedData.map(item => {
+        const formattedData = data.map(item => {
             const { id, source_path, ...rest } = item; // Exclude internal fields
             const newItem = {};
             for (const key in rest) {
@@ -7609,7 +7421,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         window.XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
     };
 
-    // New handler function in BusinessPage - Export all entries
+    // New handler function in BusinessPage
     const handleExportExcel = () => {
         if (!window.XLSX) {
             alert("Excel export library is not ready. Please try again in a moment.");
@@ -7617,8 +7429,8 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         }
 
         setConfirmAction({
-            title: 'Export All Business Entries to Excel',
-            message: 'This will export all business entries (sorted by date) to a single Excel file, with one sheet per section. Proceed?',
+            title: 'Export Business (BS1) Excel',
+            message: 'This will export all business sections to a single Excel file, with one sheet per section. Proceed?',
             confirmText: 'Export',
             type: 'save',
             action: async () => {
@@ -7633,61 +7445,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                         processAndAddSheet(sectionEntries, section.title, wb); 
                     });
                     
-                    window.XLSX.writeFile(wb, `business_all_export_${new Date().toISOString().split('T')[0]}.xlsx`);
-
-                } catch (error) {
-                    console.error("Excel Export failed:", error);
-                    alert("An error occurred during the Excel export.");
-                } finally {
-                    setIsExportingExcel(false);
-                }
-            }
-        });
-    };
-
-    // Export only ticked (selected) entries
-    const handleExportSelectedExcel = () => {
-        if (!window.XLSX) {
-            alert("Excel export library is not ready. Please try again in a moment.");
-            return;
-        }
-
-        if (tickedEntries.size === 0) {
-            alert("No entries selected. Please select entries to export.");
-            return;
-        }
-
-        setConfirmAction({
-            title: 'Export Selected Business Entries to Excel',
-            message: `This will export ${tickedEntries.size} selected business entries (sorted by date) to an Excel file. Proceed?`,
-            confirmText: 'Export',
-            type: 'save',
-            action: async () => {
-                setIsExportingExcel(true);
-                try {
-                    const wb = window.XLSX.utils.book_new();
-                    
-                    // Filter only ticked entries
-                    const tickedBusinessEntries = allBusinessEntries.filter(e => tickedEntries.has(e.id));
-                    
-                    // Group by section and export each section
-                    const entriesBySection = {};
-                    tickedBusinessEntries.forEach(entry => {
-                        if (!entriesBySection[entry.source_path]) {
-                            entriesBySection[entry.source_path] = [];
-                        }
-                        entriesBySection[entry.source_path].push(entry);
-                    });
-                    
-                    // Add sheets for each section with ticked entries
-                    allDisplaySections.forEach(section => {
-                        const sectionEntries = entriesBySection[section.collectionPath] || [];
-                        if (sectionEntries.length > 0) {
-                            processAndAddSheet(sectionEntries, section.title, wb);
-                        }
-                    });
-                    
-                    window.XLSX.writeFile(wb, `business_selected_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    window.XLSX.writeFile(wb, `business_bs1_export_${new Date().toISOString().split('T')[0]}.xlsx`);
 
                 } catch (error) {
                     console.error("Excel Export failed:", error);
@@ -8266,7 +8024,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                             <button 
                                 onClick={handleExportExcel} 
                                 disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
-                                title="Export Business to Excel" 
+                                title="Export Business (BS1) to Excel" 
                                 className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18}/>}
@@ -8286,6 +8044,10 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                                 className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
+                            </button>
+                            {/* Clear All Button */}
+                            <button onClick={handleClearBusinessData} disabled={isClearingData || isExportingExcel} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                                {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                             </button>
                              <AddNewBusinessSection onAdd={handleAddSection} />
                         </div>
@@ -10708,19 +10470,10 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
     const [newEntry, setNewEntry] = useState({ date: formatDate(new Date()), particulars: '', debit: '', credit: '', mainCategory: '', subCategory: '', customSubCategory: '', partnerName: '', vehicleNumber: '' });
     const [editingEntry, setEditingEntry] = useState(null);
     const [showNewEntryModal, setShowNewEntryModal] = useState(false); // New state for the modal
-    const [view, setView] = useState(() => {
-        const saved = localStorage.getItem('dashboard_ledger_view');
-        return saved || 'monthly';
-    });
+    const [view, setView] = useState('monthly');
     const [activeLedgerView, setActiveLedgerView] = useState('entries');
-    const [selectedYear, setSelectedYear] = useState(() => {
-        const saved = localStorage.getItem('dashboard_ledger_year');
-        return saved ? Number(saved) : new Date().getFullYear();
-    });
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const saved = localStorage.getItem('dashboard_ledger_month');
-        return saved ? Number(saved) : new Date().getMonth();
-    });
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [searchTerm, setSearchTerm] = useState('');
     const [mainCategoryFilter, setMainCategoryFilter] = useState('');
     const [subCategoryFilter, setSubCategoryFilter] = useState('');
@@ -10744,19 +10497,6 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
 
 
     const pinnedItemsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/ledgerFavorites`), [userId, appId]);
-
-    // Persist time filter selections
-    useEffect(() => {
-        localStorage.setItem('dashboard_ledger_view', view);
-    }, [view]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_ledger_year', selectedYear.toString());
-    }, [selectedYear]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_ledger_month', selectedMonth.toString());
-    }, [selectedMonth]);
 
     const updateTickedInFirestore = useCallback(async (newSet) => {
         if (!tickedEntriesRef) return;
@@ -11880,6 +11620,9 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                                     </button>
                                 </>
                             )}
+                            <button onClick={handleClearLedgerData} disabled={isClearingData || isExportingExcel} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                                {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
+                            </button>
                             <div className="relative">
                                <input
                                     type="text"
@@ -12086,18 +11829,9 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
     const [newEntry, setNewEntry] = useState({ date: formatDate(new Date()), name: '', nationality: '', description: '', debit: '', credit: '', dueDate: '', customDescription: '', yearRange: '' });
     const [editingEntry, setEditingEntry] = useState(null);
     const [showAddModal, setShowAddModal] = useState(false); // Add this state
-    const [view, setView] = useState(() => {
-        const saved = localStorage.getItem('dashboard_debtsCredits_view');
-        return saved || 'all';
-    }); // Default view changed to 'all'
-    const [selectedYear, setSelectedYear] = useState(() => {
-        const saved = localStorage.getItem('dashboard_debtsCredits_year');
-        return saved ? Number(saved) : new Date().getFullYear();
-    });
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const saved = localStorage.getItem('dashboard_debtsCredits_month');
-        return saved ? Number(saved) : new Date().getMonth();
-    });
+    const [view, setView] = useState('all'); // Default view changed to 'all'
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [searchTerm, setSearchTerm] = useState('');
     const [mainCategoryFilter, setMainCategoryFilter] = useState('');
     const [subCategoryFilter, setSubCategoryFilter] = useState('');
@@ -12145,19 +11879,6 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
     const badDebtsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${badDebtsCollectionPath}`), [userId, appId, badDebtsCollectionPath]);
 
     const tickedItemsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/debtCreditSettings/tickedItems`), [userId, appId]);
-
-    // Persist time filter selections
-    useEffect(() => {
-        localStorage.setItem('dashboard_debtsCredits_view', view);
-    }, [view]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_debtsCredits_year', selectedYear.toString());
-    }, [selectedYear]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_debtsCredits_month', selectedMonth.toString());
-    }, [selectedMonth]);
 
     const updateTickedInFirestore = useCallback(async (newSet) => {
         if (!tickedItemsRef) return;
@@ -13477,35 +13198,13 @@ const ConfirmationModal = ({ details, onConfirm, onCancel }) => {
 
 const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
     const [ledger, setLedger] = useState([]);
-    const [view, setView] = useState(() => {
-        const saved = localStorage.getItem('dashboard_financialReports_view');
-        return saved || 'monthly';
-    });
-    const [selectedYear, setSelectedYear] = useState(() => {
-        const saved = localStorage.getItem('dashboard_financialReports_year');
-        return saved ? Number(saved) : new Date().getFullYear();
-    });
-    const [selectedMonth, setSelectedMonth] = useState(() => {
-        const saved = localStorage.getItem('dashboard_financialReports_month');
-        return saved ? Number(saved) : new Date().getMonth();
-    });
+    const [view, setView] = useState('monthly');
+    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
+    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const [activeReport, setActiveReport] = useState('pnl');
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
     const importFileInputRef = useRef(null);
-
-    // Persist time filter selections
-    useEffect(() => {
-        localStorage.setItem('dashboard_financialReports_view', view);
-    }, [view]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_financialReports_year', selectedYear.toString());
-    }, [selectedYear]);
-
-    useEffect(() => {
-        localStorage.setItem('dashboard_financialReports_month', selectedMonth.toString());
-    }, [selectedMonth]);
 
     useEffect(() => { if(!userId || appId === 'default-app-id') return; const q = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`); const unsub = onSnapshot(q, (snap) => setLedger(snap.docs.map(d => ({id: d.id, ...d.data()})))); return unsub; }, [userId, appId, collectionPath]);
 
@@ -15464,6 +15163,20 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                             className="hidden"
                             accept=".xlsx,.xls"
                         />
+                    </div>
+                </div>
+
+                {/* Separator */}
+                <div className="border-t dark:border-gray-700 border-gray-300 my-6"></div>
+
+                {/* Other Actions */}
+                <div>
+                    <h3 className="text-lg font-semibold mb-2 text-orange-400">Other Actions</h3>
+                    <div className="flex items-center gap-4 flex-wrap">
+                        <button onClick={handleClearAllData} disabled={isClearingData || isImporting || isExporting || isImportingExcel || isExportingExcel} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
+                            {isClearingData ? <Loader2 className="animate-spin" /> : <AlertTriangle size={18}/>}
+                            <span>{isClearingData ? 'Clearing Data...' : 'Clear All Data'}</span>
+                        </button>
                     </div>
                 </div>
             </section>

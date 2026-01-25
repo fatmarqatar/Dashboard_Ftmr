@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import ErrorBoundary from './ErrorBoundary';
 import LandingPage from './LandingPage';
 // Consolidated lucide-react import
-import { Undo, Download, Upload, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User, ArrowUp, ArrowDown } from 'lucide-react';
+import { Undo, Download, Upload, Edit, Trash2, PlusCircle, X, FileText, Briefcase, BookOpen, Target, TrendingUp, Sun, Moon, HandCoins, AlertTriangle, Loader2, Building2, CheckCircle, Save, Search, UserPlus, Users, Eye, Filter, Car, Banknote, FileCheck2, MoreHorizontal, KeyRound, Truck, ShieldCheck, TrendingDown, Carrot, BookUser, IdCard, Settings, SearchCode, Bell, FileUp, Copy, Pin, PinOff, Home, LogOut, User, ArrowUp, ArrowDown, Edit2 } from 'lucide-react';
 // Consolidated Chart.js imports, register first
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, BarElement, Filler } from 'chart.js';
 import { Pie, Bar, Line, Doughnut } from 'react-chartjs-2'; // Import react-chartjs-2 components after registration
@@ -86,12 +86,14 @@ const isDateExpired = (dateInput) => {
 const getStatusBadge = (status) => {
     const statusColors = {
         'New Visa': 'bg-blue-500/20 text-blue-400',
+        'Applied': 'bg-purple-500/20 text-purple-400',
         'Under Process': 'bg-yellow-500/20 text-yellow-400',
-        'RP Issued': 'bg-green-500/20 text-green-400',
+        'Valid for Use': 'bg-green-500/20 text-green-400',
+        'RP Issued': 'bg-cyan-500/20 text-cyan-400',
         'Others': 'bg-gray-500/20 text-gray-400',
     };
     return (
-        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${statusColors[status] || 'bg-gray-500/20 text-gray-400'}`}>
+        <span className={`px-1.5 py-0.5 text-[9px] font-semibold rounded-full ${statusColors[status] || 'bg-gray-500/20 text-gray-400'} whitespace-nowrap`}>
             {status}
         </span>
     );
@@ -174,7 +176,7 @@ const EditableTH = ({ initialValue, onSave, className }) => {
     
     return (
         <th className={`p-0 font-semibold text-left ${className}`}>
-            <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 cursor-pointer" onClick={() => !isEditing && setIsEditing(true)}>
+            <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 cursor-pointer h-[32px] flex items-center" onClick={() => !isEditing && setIsEditing(true)}>
                 {isEditing ? (
                     <input ref={inputRef} type="text" value={value} onChange={e => setValue(e.target.value)} onBlur={handleSave} onKeyDown={handleKeyDown} className="bg-gray-700 rounded-md px-1 w-full" />
                 ) : (
@@ -1001,6 +1003,7 @@ const GenericSubPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAc
 const vehicleFormFields = [
     {name: 'vehicleNo', label: 'Vehicle No'}, {name: 'make', label: 'Make'},
     {name: 'model', label: 'Model'}, {name: 'owner', label: 'Owner'}, {name: 'expiry', label: 'Expiry', type: 'date'},
+    {name: 'purchaseDate', label: 'Purchase Date', type: 'date'}, {name: 'soldDate', label: 'Sold Date', type: 'date'},
     {name: 'status', label: 'Status', type: 'select', options: ['Active', 'Expired', 'Sold']},
     {name: 'contact1', label: 'Contact 1'}, {name: 'note', label: 'Note', type: 'textarea', colSpan: 2},
 ];
@@ -1015,8 +1018,12 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
     const [isImporting, setIsImporting] = useState(false);
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [pinnedVehicles, setPinnedVehicles] = useState([]);
+    const [docUploadStates, setDocUploadStates] = useState({});
+    const [docPreview, setDocPreview] = useState(null);
     const vehiclesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
     const settingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, collectionPath), [userId, appId, collectionPath]);
+    const pinnedSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, `${collectionPath}Pinned`), [userId, appId, collectionPath]);
 
     useEffect(() => {
         const unsub = onSnapshot(vehiclesRef, snapshot => {
@@ -1024,6 +1031,20 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
         });
         return () => unsub();
     }, [vehiclesRef]);
+
+    // Load pinned vehicles
+    useEffect(() => {
+        if (!pinnedSettingsRef) return;
+        const unsub = onSnapshot(pinnedSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setPinnedVehicles(data.pinnedIds || []);
+            } else {
+                setPinnedVehicles([]);
+            }
+        });
+        return () => unsub();
+    }, [pinnedSettingsRef]);
 
     // Load and persist selected vehicles
     useEffect(() => {
@@ -1083,6 +1104,206 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
         const newSet = new Set();
         setTickedVehicles(newSet);
         updateTickedInFirestore(newSet);
+    };
+
+    const handlePinVehicle = async (vehicle) => {
+        if (!pinnedSettingsRef) return;
+        const newPinnedIds = [...pinnedVehicles, vehicle.id];
+        setPinnedVehicles(newPinnedIds);
+        await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+    };
+
+    const handleUnpinVehicle = async (vehicle) => {
+        if (!pinnedSettingsRef) return;
+        const newPinnedIds = pinnedVehicles.filter(id => id !== vehicle.id);
+        setPinnedVehicles(newPinnedIds);
+        await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+    };
+
+    const handleUploadVehicleDocument = async (vehicleId, type, file) => {
+        const key = `${vehicleId}_${type}`;
+        setDocUploadStates(prev => ({ ...prev, [key]: { uploading: true, error: null } }));
+        
+        try {
+            const fileExt = file.name.split('.').pop().toLowerCase();
+            const storagePath = `vehicle_docs/${collectionPath}/${vehicleId}/${type}_${Date.now()}.${fileExt}`;
+            const storageRef = ref(storage, storagePath);
+            await uploadBytes(storageRef, file);
+            const downloadURL = await getDownloadURL(storageRef);
+            
+            const urlField = type === 'isthimara' ? 'isthimaraUrl' : 'photoUrl';
+            const storagePathField = type === 'isthimara' ? 'isthimaraStoragePath' : 'photoStoragePath';
+            
+            await updateDoc(doc(vehiclesRef, vehicleId), {
+                [urlField]: downloadURL,
+                [storagePathField]: storagePath
+            });
+            
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: null } }));
+        } catch (err) {
+            console.error('Upload failed:', err);
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: 'Upload failed.' } }));
+        }
+    };
+
+    const handleDeleteVehicleDocument = async (vehicleId, type) => {
+        const key = `${vehicleId}_${type}`;
+        setDocUploadStates(prev => ({ ...prev, [key]: { uploading: true, error: null } }));
+        
+        try {
+            const storagePathField = type === 'isthimara' ? 'isthimaraStoragePath' : 'photoStoragePath';
+            const urlField = type === 'isthimara' ? 'isthimaraUrl' : 'photoUrl';
+            
+            const vehicle = editingVehicle;
+            if (vehicle && vehicle[storagePathField]) {
+                const storageRef = ref(storage, vehicle[storagePathField]);
+                await deleteObject(storageRef);
+            }
+            
+            await updateDoc(doc(vehiclesRef, vehicleId), {
+                [urlField]: null,
+                [storagePathField]: null
+            });
+            
+            setEditingVehicle(prev => ({
+                ...prev,
+                [urlField]: null,
+                [storagePathField]: null
+            }));
+            
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: null } }));
+        } catch (err) {
+            console.error('Delete failed:', err);
+            setDocUploadStates(prev => ({ ...prev, [key]: { uploading: false, error: 'Delete failed.' } }));
+        }
+    };
+
+    const handleOpenDocPreview = (url, type, vehicleName) => {
+        if (!url || typeof url !== 'string') {
+            console.warn('Invalid vehicle document URL for preview', { url, type, vehicleName });
+            return;
+        }
+        setDocPreview({ url, type, name: vehicleName });
+    };
+
+    const VehicleModal = ({ isOpen, onClose, onSave, initialData }) => {
+        const [formData, setFormData] = useState({});
+
+        useEffect(() => {
+            if (isOpen && initialData) {
+                const initial = {};
+                vehicleFormFields.forEach(field => {
+                    if (field.type === 'date' && initialData[field.name]) {
+                        initial[field.name] = formatDate(initialData[field.name]);
+                    } else {
+                        initial[field.name] = initialData[field.name] || '';
+                    }
+                });
+                setFormData(initial);
+            } else if (isOpen) {
+                setFormData(vehicleFormFields.reduce((acc, field) => {
+                    acc[field.name] = field.defaultValue || '';
+                    return acc;
+                }, {}));
+            }
+        }, [isOpen, initialData]);
+
+        const handleChange = (e) => {
+            const { name, value } = e.target;
+            setFormData(prev => ({ ...prev, [name]: value }));
+        };
+
+        const handleFileChange = (type) => async (e) => {
+            const file = e.target.files[0];
+            if (file && initialData?.id) {
+                await handleUploadVehicleDocument(initialData.id, type, file);
+            }
+            e.target.value = '';
+        };
+
+        const handleSave = () => {
+            const dataToSave = { ...formData };
+            vehicleFormFields.forEach(field => {
+                if (field.type === 'date' && dataToSave[field.name]) {
+                    dataToSave[field.name] = parseDateForFirestore(dataToSave[field.name]);
+                }
+            });
+            onSave(dataToSave);
+        };
+
+        if (!isOpen) return null;
+
+        const documentTypes = [
+            { key: 'isthimara', label: 'Isthimara', urlField: 'isthimaraUrl' },
+            { key: 'photo', label: 'Photo', urlField: 'photoUrl' }
+        ];
+
+        return (
+            <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[100] p-4">
+                <div className="dark:bg-gray-800 bg-white p-6 rounded-lg shadow-xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+                    <h3 className="text-xl font-bold mb-6">{initialData ? 'Edit' : 'Add'} Vehicle</h3>
+                    <div className="overflow-y-auto flex-1">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                            {vehicleFormFields.map(field => (
+                                <div key={field.name}>
+                                    <label className="text-xs dark:text-gray-400 text-gray-500">{field.label}</label>
+                                    {field.type === 'textarea' ? (
+                                        <textarea name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md h-24 border dark:border-gray-600 border-gray-300" />
+                                    ) : field.type === 'select' ? (
+                                        <select name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300">
+                                            <option value="">Select {field.label}</option>
+                                            {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
+                                        </select>
+                                    ) : field.type === 'date' ? (
+                                        <input type="date" name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" />
+                                    ) : (
+                                        <input type="text" name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" />
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                        
+                        {initialData?.id && (
+                            <div className="border-t dark:border-gray-700 border-gray-300 pt-6 mt-6">
+                                <h4 className="font-semibold mb-4 text-base">Documents</h4>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                    {documentTypes.map(doc => {
+                                        const hasDoc = !!initialData[doc.urlField];
+                                        const inputId = `vehicle_doc_${initialData.id}_${doc.key}`;
+                                        const state = docUploadStates[`${initialData.id}_${doc.key}`] || { uploading: false };
+                                        
+                                        return (
+                                            <div key={doc.key} className="dark:bg-gray-700/50 bg-gray-100 p-4 rounded-lg">
+                                                <div className="flex items-center justify-between mb-3">
+                                                    <label className="font-medium text-sm">{doc.label}</label>
+                                                    <div className="flex gap-2">
+                                                        {state.uploading && <Loader2 size={14} className="animate-spin text-cyan-400" />}
+                                                        {hasDoc && !state.uploading && (
+                                                            <>
+                                                                <button onClick={() => handleOpenDocPreview(initialData[doc.urlField], doc.label, initialData.vehicleNo)} className="p-1 hover:text-cyan-400 transition-colors" title={`View ${doc.label}`}><Eye size={14} /></button>
+                                                                <button onClick={() => handleDeleteVehicleDocument(initialData.id, doc.key)} className="p-1 hover:text-red-400 transition-colors" title={`Delete ${doc.label}`}><Trash2 size={14} /></button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <label htmlFor={inputId} className={`block p-3 rounded-lg border-2 border-dashed cursor-pointer transition-colors text-center text-sm ${hasDoc ? 'dark:border-green-600 dark:bg-green-950 border-green-300 bg-green-50' : 'dark:border-gray-600 dark:hover:border-cyan-500 border-gray-300 hover:border-cyan-400'}`}>
+                                                    {hasDoc ? `✓ ${doc.label} Uploaded` : `+ Add ${doc.label}`}
+                                                </label>
+                                                <input id={inputId} type="file" accept="image/jpeg,image/jpg,image/png,application/pdf" className="hidden" onChange={handleFileChange(doc.key)} />
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex justify-end gap-2 mt-6 border-t dark:border-gray-700 border-gray-300 pt-4">
+                        <button onClick={onClose} className="px-4 py-2 rounded-lg dark:bg-gray-700 bg-gray-300 hover:dark:bg-gray-600 hover:bg-gray-400">Cancel</button>
+                        <button onClick={() => { handleSave(); onClose(); }} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white">Save</button>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     const handleDeleteSelected = () => {
@@ -1209,7 +1430,7 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
         });
     };
 
-    const { activeVehicles, soldVehicles } = useMemo(() => {
+    const { activeVehicles, soldVehicles, soonVehicles, groupedActiveVehicles } = useMemo(() => {
         let filteredVehicles = vehicles;
         if (searchTerm) {
             const lowercasedTerm = searchTerm.toLowerCase();
@@ -1220,14 +1441,27 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
             );
         }
 
-        const { active, sold } = filteredVehicles.reduce((acc, v) => {
+        const { active, sold, soon } = filteredVehicles.reduce((acc, v) => {
             if (v.status === 'Sold') {
                 acc.sold.push(v);
             } else {
                 acc.active.push(v);
+                
+                // Check if expiring soon (within 30 days)
+                if (v.expiry) {
+                    const expiryDate = v.expiry.toDate ? v.expiry.toDate() : new Date(v.expiry);
+                    const today = new Date();
+                    today.setHours(0, 0, 0, 0);
+                    const thirtyDaysFromNow = new Date();
+                    thirtyDaysFromNow.setDate(today.getDate() + 30);
+                    
+                    if (expiryDate >= today && expiryDate <= thirtyDaysFromNow) {
+                        acc.soon.push(v);
+                    }
+                }
             }
             return acc;
-        }, { active: [], sold: [] });
+        }, { active: [], sold: [], soon: [] });
 
         // Sort active vehicles by expiry date (soonest first)
         active.sort((a, b) => {
@@ -1241,18 +1475,102 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
 
             return dateA - dateB; // ascending order (soonest first)
         });
+        
+        soon.sort((a, b) => {
+            const dateA = a.expiry?.toDate ? a.expiry.toDate().getTime() : 0;
+            const dateB = b.expiry?.toDate ? b.expiry.toDate().getTime() : 0;
+            return dateA - dateB;
+        });
 
-        return { activeVehicles: active, soldVehicles: sold };
-    }, [vehicles, searchTerm]);
+        // Separate pinned and unpinned active vehicles
+        const pinned = active.filter(v => pinnedVehicles.includes(v.id));
+        const unpinned = active.filter(v => !pinnedVehicles.includes(v.id));
+
+        return { 
+            activeVehicles: active, 
+            soldVehicles: sold, 
+            soonVehicles: soon,
+            groupedActiveVehicles: { pinned, main: unpinned }
+        };
+    }, [vehicles, searchTerm, pinnedVehicles]);
     
-    const VehicleTable = ({ vehicleList, tickedVehicles, onToggleTick, onToggleAllTicks }) => (
+    const VehicleTable = ({ vehicleList, tickedVehicles, onToggleTick, onToggleAllTicks, isPinnedTable = false, showPurchaseDate = false, showSoldDate = false }) => {
+        const DocumentCell = ({ vehicle, type, urlField, label }) => {
+            const key = `${vehicle.id}_${type}`;
+            const state = docUploadStates[key] || { uploading: false, error: null };
+            const hasDoc = !!vehicle[urlField];
+            const inputId = `file_input_${vehicle.id}_${type}`;
+            const onFileChange = (e) => {
+                const file = e.target.files[0];
+                if (file) handleUploadVehicleDocument(vehicle.id, type, file);
+                e.target.value = '';
+            };
+            
+            return (
+                <td className="p-2 dark:bg-gray-800/50 bg-gray-50 text-center">
+                    {state.uploading ? (
+                        <Loader2 size={16} className="animate-spin text-cyan-400 mx-auto" />
+                    ) : (
+                        <div className="flex items-center justify-center gap-1">
+                            <label 
+                                className={`flex items-center justify-center p-1 cursor-pointer transition-colors ${hasDoc ? 'text-green-400' : 'text-red-400 hover:text-red-300'}`}
+                                title={hasDoc ? `View/Replace ${label}` : `Upload ${label}`} 
+                                htmlFor={inputId}
+                            >
+                                <FileUp size={14} />
+                            </label>
+                            {hasDoc && (
+                                <button
+                                    onClick={() => handleOpenDocPreview(vehicle[urlField], label, vehicle.vehicleNo)}
+                                    className="p-1 hover:text-cyan-400 transition-colors"
+                                    title={`View ${label}`}
+                                >
+                                    <Eye size={14} />
+                                </button>
+                            )}
+                        </div>
+                    )}
+                    <input id={inputId} type="file" accept="image/jpeg,image/jpg,image/png,application/pdf" className="hidden" onChange={onFileChange} />
+                </td>
+            );
+        };
+        
+        const ExpiryBadge = ({ date }) => {
+            if (!date) return <span className="text-xs dark:text-gray-500 text-gray-400">N/A</span>;
+            
+            const expiryDate = date.toDate ? date.toDate() : new Date(date);
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            const thirtyDaysFromNow = new Date();
+            thirtyDaysFromNow.setDate(today.getDate() + 30);
+            
+            let status, colorClass;
+            if (expiryDate < today) {
+                status = 'Expired';
+                colorClass = 'bg-red-500/20 text-red-400 border border-red-500/30';
+            } else if (expiryDate <= thirtyDaysFromNow) {
+                status = 'Near Expiry';
+                colorClass = 'bg-orange-500/20 text-orange-400 border border-orange-500/30';
+            } else {
+                status = 'Active';
+                colorClass = 'bg-green-500/20 text-green-400';
+            }
+            
+            return (
+                <span className={`inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold rounded-full whitespace-nowrap h-5 ${colorClass}`}>
+                    {status}
+                </span>
+            );
+        };
+
+        return (
         <div>
             <div className="overflow-x-auto">
                 <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
                     <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                         <tr>
                             <th className="p-0 font-semibold w-12">
-                                <div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
+                                <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
                                     <input
                                         type="checkbox"
                                         onChange={() => onToggleAllTicks(vehicleList)}
@@ -1262,17 +1580,26 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                                     />
                                 </div>
                             </th>
-                            {['S.No', 'Vehicle No', 'Make', 'Model', 'Owner', 'Expiry', 'Status', 'Contact 1', 'Note', 'Actions'].map(h => (
-                                <th key={h} className={`p-0 font-semibold text-left ${h === 'Actions' ? 'text-right' : ''}`}><div className="dark:bg-slate-900 bg-white px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div></th>
-                            ))}
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Vehicle No</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Make</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Model</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Owner</div></th>
+                            {showPurchaseDate && <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Purchase Date</div></th>}
+                            {showSoldDate && <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Sold Date</div></th>}
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Expiry</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Status</div></th>
+                            <th className="p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Isthimara</div></th>
+                            <th className="p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Photo</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Contact 1</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Note</div></th>
+                            <th className="p-0 font-semibold text-right"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
                         </tr>
                     </thead>
                     <tbody>
                         {vehicleList.map((v, i) => {
-                            const expired = isDateExpired(v.expiry);
-                            const statusColor = v.status === 'Active' ? 'text-green-400' : 'text-yellow-400';
                             const isTicked = tickedVehicles.has(v.id);
-                            const cellClassName = `p-2 align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-white'}`;
+                            const cellClassName = `p-2 align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-gray-50'}`;
 
                             return (
                                 <tr key={v.id} className="group/row">
@@ -1289,12 +1616,21 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                                     <td className={cellClassName}>{v.make}</td>
                                     <td className={cellClassName}>{v.model}</td>
                                     <td className={cellClassName}>{v.owner}</td>
-                                    <td className={`${cellClassName} ${expired ? 'text-red-400 font-bold' : ''}`}>{formatDate(v.expiry)}</td>
-                                    <td className={`${cellClassName} font-semibold ${statusColor}`}>{v.status}</td>
+                                    {showPurchaseDate && <td className={cellClassName}>{formatDate(v.purchaseDate)}</td>}
+                                    {showSoldDate && <td className={cellClassName}>{formatDate(v.soldDate)}</td>}
+                                    <td className={cellClassName}>{formatDate(v.expiry)}</td>
+                                    <td className={cellClassName}><ExpiryBadge date={v.expiry} /></td>
+                                    <DocumentCell vehicle={v} type="isthimara" urlField="isthimaraUrl" label="Isthimara" />
+                                    <DocumentCell vehicle={v} type="photo" urlField="photoUrl" label="Photo" />
                                     <td className={cellClassName}>{v.contact1}</td>
                                     <td className={`${cellClassName} truncate max-w-xs`}>{v.note}</td>
                                     <td className={`${cellClassName} rounded-r-md`}>
                                         <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
+                                            {isPinnedTable ? (
+                                                <button onClick={() => handleUnpinVehicle(v)} className="p-1.5 hover:text-yellow-400" title="Unpin Vehicle"><PinOff size={14}/></button>
+                                            ) : (
+                                                <button onClick={() => handlePinVehicle(v)} className="p-1.5 hover:text-yellow-400" title="Pin Vehicle"><Pin size={14}/></button>
+                                            )}
                                             <button onClick={() => { setEditingVehicle(v); setShowModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14}/></button>
                                             <button onClick={() => onDeleteRequest(v)} className="p-1.5 hover:text-red-400"><Trash2 size={14}/></button>
                                         </div>
@@ -1307,7 +1643,8 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                  {vehicleList.length === 0 && <div className="text-center py-8 text-gray-500">No vehicles in this section.</div>}
             </div>
         </div>
-    );
+        );
+    };
 
     return (
         <div className="p-4 sm:p-8">
@@ -1319,6 +1656,12 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                             className={`py-2 px-4 text-sm font-semibold transition-colors ${activeVehicleView === 'active' ? 'border-b-2 border-cyan-400 text-cyan-400' : 'text-gray-400 hover:text-white'}`}
                         >
                             Active Vehicles ({activeVehicles.length})
+                        </button>
+                        <button 
+                            onClick={() => setActiveVehicleView('soon')}
+                            className={`py-2 px-4 text-sm font-semibold transition-colors ${activeVehicleView === 'soon' ? 'border-b-2 border-orange-400 text-orange-400' : 'text-gray-400 hover:text-white'}`}
+                        >
+                            Soon ({soonVehicles.length})
                         </button>
                         <button 
                             onClick={() => setActiveVehicleView('sold')}
@@ -1357,11 +1700,52 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                     </div>
                 </div>
 
-                {activeVehicleView === 'active' && <VehicleTable vehicleList={activeVehicles} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(activeVehicles)} />}
-                {activeVehicleView === 'sold' && <VehicleTable vehicleList={soldVehicles} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(soldVehicles)} />}
+                {activeVehicleView === 'active' && (
+                    <>
+                        {groupedActiveVehicles.pinned.length > 0 && (
+                            <div className="mb-6">
+                                <h3 className="text-lg font-semibold mb-3 flex items-center">
+                                    <Pin size={18} className="mr-2 text-yellow-400" />
+                                    Pinned Vehicles ({groupedActiveVehicles.pinned.length})
+                                </h3>
+                                <VehicleTable vehicleList={groupedActiveVehicles.pinned} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(groupedActiveVehicles.pinned)} isPinnedTable={true} showPurchaseDate={true} />
+                            </div>
+                        )}
+                        {groupedActiveVehicles.main.length > 0 && (
+                            <VehicleTable vehicleList={groupedActiveVehicles.main} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(groupedActiveVehicles.main)} showPurchaseDate={true} />
+                        )}
+                        {groupedActiveVehicles.pinned.length === 0 && groupedActiveVehicles.main.length === 0 && (
+                            <div className="text-center py-8 text-gray-500">No active vehicles found.</div>
+                        )}
+                    </>
+                )}
+                {activeVehicleView === 'soon' && <VehicleTable vehicleList={soonVehicles} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(soonVehicles)} showPurchaseDate={true} />}
+                {activeVehicleView === 'sold' && <VehicleTable vehicleList={soldVehicles} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(soldVehicles)} showPurchaseDate={true} showSoldDate={true} />}
             </section>
             
-            <GenericAddEditModal isOpen={showModal} onSave={handleSave} onClose={() => setShowModal(false)} initialData={editingVehicle} formFields={vehicleFormFields} title="Vehicle"/>
+            <VehicleModal isOpen={showModal} onSave={handleSave} onClose={() => setShowModal(false)} initialData={editingVehicle} />
+            
+            {docPreview && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setDocPreview(null)}>
+                    <div className="dark:bg-gray-800 bg-white rounded-lg shadow-xl w-full max-w-6xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-3 border-b dark:border-gray-700 border-gray-300">
+                            <h4 className="font-semibold text-sm">{docPreview.type} - {docPreview.name}</h4>
+                            <button onClick={() => setDocPreview(null)} className="p-1 hover:text-red-400" title="Close"><X size={16} /></button>
+                        </div>
+                        <div className="flex-1 overflow-hidden flex items-center justify-center bg-gray-900/50">
+                            {docPreview.url.match(/\.(jpg|jpeg|png|gif|webp)(\?|$)/i) ? (
+                                <img src={docPreview.url} alt={docPreview.type} className="max-w-full max-h-full object-contain" />
+                            ) : (
+                                <iframe src={docPreview.url} title="Document Preview" className="w-full h-full rounded-b-lg" />
+                            )}
+                        </div>
+                        <div className="p-2 flex justify-end space-x-2 border-t dark:border-gray-700 border-gray-300">
+                            <a href={docPreview.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 text-xs rounded-md bg-cyan-500 hover:bg-cyan-600" title="Open in new tab">Open Full</a>
+                            <button onClick={() => setDocPreview(null)} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-700">Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -1473,6 +1857,7 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
     const [selectedReminders, setSelectedReminders] = useState(new Set());
     const importFileInputRef = useRef(null);
     const [searchTerm, setSearchTerm] = useState('');
+    const [docPreview, setDocPreview] = useState(null); // { url, type, name }
     
     // Settings refs for persisting selections
     const documentsSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, `${collectionPrefix}Documents`), [userId, appId, collectionPrefix]);
@@ -1797,10 +2182,10 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
             { header: 'Expiry', accessor: 'expiry', render: (item) => formatDate(item.expiry) }, 
             { header: 'Status', accessor: 'status', render: (item) => <DocumentStatusBadge date={item.expiry} /> },
             { header: 'File', accessor: 'fileUrl', render: (item) => item.fileUrl ? (
-                <a href={item.fileUrl} target="_blank" rel="noopener noreferrer" className="inline-flex items-center space-x-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors" title="View file">
+                <button onClick={() => setDocPreview({ url: item.fileUrl, type: item.description, name: item.subDescription || item.email })} className="inline-flex items-center space-x-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors" title="View file">
                     <FileText size={12} />
                     <span>PDF</span>
-                </a>
+                </button>
             ) : <span className="text-xs dark:text-gray-500 text-gray-400">-</span> }
         ],
         formFields: [ { name: 'description', label: 'Description', transform: 'capitalize' }, { name: 'subDescription', label: 'Sub-Description', transform: 'capitalize' }, { name: 'email', label: 'Email' }, { name: 'number', label: 'Number' }, { name: 'contact', label: 'Contact' }, { name: 'username', label: 'Username' }, { name: 'passcode', label: 'Passcode' }, { name: 'pin', label: 'PIN' }, { name: 'expiry', label: 'Expiry', type: 'date' }, { name: 'others', label: 'Others', type: 'textarea' }, ]
@@ -2094,19 +2479,19 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                                                 <td className={cellClassName}>{docItem.number}</td>
                                                 <td className={cellClassName}>{formatDate(docItem.registrationDate)}</td>
                                                 <td className={cellClassName}>{formatDate(docItem.expiryDate)}</td>
-                                                <td className={cellClassName}><DocumentStatusBadge date={docItem.expiryDate} /></td>
+                                                <td className={cellClassName}>
+                                                    <DocumentStatusBadge date={docItem.expiryDate} />
+                                                </td>
                                                 <td className={`${cellClassName} text-center`}>
                                                     {docItem.fileUrl ? (
-                                                        <a 
-                                                            href={docItem.fileUrl} 
-                                                            target="_blank" 
-                                                            rel="noopener noreferrer"
+                                                        <button
+                                                            onClick={() => setDocPreview({ url: docItem.fileUrl, type: docItem.type, name: docItem.documentName })}
                                                             className="inline-flex items-center space-x-1 px-2 py-1 bg-green-500/20 text-green-400 rounded text-xs hover:bg-green-500/30 transition-colors"
                                                             title="View file"
                                                         >
                                                             <FileText size={12} />
                                                             <span>PDF</span>
-                                                        </a>
+                                                        </button>
                                                     ) : (
                                                         <span className="text-xs dark:text-gray-500 text-gray-400">-</span>
                                                     )}
@@ -2271,6 +2656,24 @@ const DocsAndCredsPage = ({ userId, appId, pageTitle, collectionPrefix, setConfi
                 docId={editingCred?.id}
             />
             <GenericAddEditModal isOpen={showReminderModal} onSave={handleReminderSave} onClose={() => setShowReminderModal(false)} initialData={editingReminder} formFields={reminderFormFields} title="Reminder"/>
+            
+            {docPreview && (
+                <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4" onClick={() => setDocPreview(null)}>
+                    <div className="dark:bg-gray-800 bg-white rounded-lg shadow-xl w-full max-w-6xl h-[85vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between p-3 border-b dark:border-gray-700 border-gray-300">
+                            <h4 className="font-semibold text-sm">{docPreview.type} - {docPreview.name}</h4>
+                            <button onClick={() => setDocPreview(null)} className="p-1 hover:text-red-400" title="Close"><X size={16} /></button>
+                        </div>
+                        <div className="flex-1 overflow-hidden">
+                            <iframe src={docPreview.url} title="Document Preview" className="w-full h-full rounded-b-lg" />
+                        </div>
+                        <div className="p-2 flex justify-end space-x-2 border-t dark:border-gray-700 border-gray-300">
+                            <a href={docPreview.url} target="_blank" rel="noopener noreferrer" className="px-3 py-1 text-xs rounded-md bg-cyan-500 hover:bg-cyan-600" title="Open in new tab">Open Full</a>
+                            <button onClick={() => setDocPreview(null)} className="px-3 py-1 text-xs rounded-md bg-gray-600 hover:bg-gray-700">Close</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }
@@ -2280,9 +2683,7 @@ const NotificationPage = ({ userId, appId }) => {
         employees: [],
         vehicles: [],
         docs_creds: [],
-        debts_credits: [],
-        business: [],
-        visas: []
+        debts_credits: []
     });
     const [loading, setLoading] = useState(true);
     const [liveData, setLiveData] = useState({});
@@ -2342,9 +2743,7 @@ const NotificationPage = ({ userId, appId }) => {
             employees: [],
             vehicles: [],
             docs_creds: [],
-            debts_credits: [],
-            business: [],
-            visas: []
+            debts_credits: []
         };
         
         const today = new Date();
@@ -2421,6 +2820,9 @@ const NotificationPage = ({ userId, appId }) => {
         ];
         vehicleScanConfig.forEach(config => {
             (liveData[config.path] || []).forEach(item => {
+                // Only include Active vehicles in notifications
+                if (item.status !== 'Active') return;
+                
                 const dateValue = item.expiry;
                 if (!dateValue) return;
                 
@@ -2607,21 +3009,6 @@ const NotificationPage = ({ userId, appId }) => {
             }
         });
 
-        // --- BUSINESS ---
-        (liveData['business_recruitments'] || []).forEach(item => {
-            const balance = (item.sold || 0) - (item.received || 0);
-            if (balance > 0) {
-                notificationsBySource.business.push({
-                    id: item.id,
-                    title: `Recruitment Balance for ${item.name}`,
-                    description: `Pending Balance: ${formatCurrency(balance)}`,
-                    date: null, // No date for balance
-                    isExpired: false,
-                    source: 'Business',
-                });
-            }
-        });
-
         // Sort each category by date
         for (const key in notificationsBySource) {
             notificationsBySource[key].sort((a, b) => {
@@ -2658,11 +3045,7 @@ const NotificationPage = ({ userId, appId }) => {
         debts_credits: {
             heading: 'text-rose-400 border-rose-500',
             bg: 'dark:bg-rose-900/10'
-        },
-        business: {
-            heading: 'text-lime-400 border-lime-500',
-            bg: 'dark:bg-lime-900/10'
-        },
+        }
     };
 
     const hasNotifications = Object.values(notifications).some(arr => arr.length > 0);
@@ -2689,7 +3072,9 @@ const NotificationPage = ({ userId, appId }) => {
                     <span className="ml-3">{title} ({items.length})</span>
                 </h3>
                 <div className="space-y-3">
-                    {items.map(item => <NotificationItem key={item.id} item={item} />)}
+                    {items.map((item, idx) => (
+                        <NotificationItem key={`${item.id || 'item'}-${item.source || 'src'}-${idx}`} item={item} />
+                    ))}
                 </div>
             </section>
         );
@@ -2704,13 +3089,11 @@ const NotificationPage = ({ userId, appId }) => {
                     ) : !hasNotifications ? (
                         <div className="text-center text-gray-500 py-8">No urgent notifications. Everything is up to date!</div>
                     ) : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                             <NotificationGroup title="Employees" items={notifications.employees} icon={<Users size={24}/>} colorConfig={notificationColors.employees} />
                             <NotificationGroup title="Vehicles" items={notifications.vehicles} icon={<Car size={24}/>} colorConfig={notificationColors.vehicles} />
-                            <NotificationGroup title="Visa Expiries" items={notifications.visas} icon={<IdCard size={24}/>} colorConfig={notificationColors.visas} />
                             <NotificationGroup title="Documents & Credentials" items={notifications.docs_creds} icon={<IdCard size={24}/>} colorConfig={notificationColors.docs_creds} />
                             <NotificationGroup title="Debts & Credits" items={notifications.debts_credits} icon={<HandCoins size={24}/>} colorConfig={notificationColors.debts_credits} />
-                            <NotificationGroup title="Business" items={notifications.business} icon={<Briefcase size={24}/>} colorConfig={notificationColors.business} />
                         </div>
                     )}
                 </div>
@@ -2726,10 +3109,11 @@ const visaFormFields = [
     { name: 'company', label: 'Company', type: 'select', options: ['ALM', 'FTH', 'Others'], defaultValue: 'ALM' },
     { name: 'visaNumber', label: 'Visa Number' },
     { name: 'name', label: 'Holder Name', transform: 'capitalize' },
+    { name: 'careOf', label: 'Care Of', transform: 'capitalize' },
     { name: 'profession', label: 'Profession', transform: 'capitalize' },
     { name: 'nationality', label: 'Nationality', transform: 'capitalize' },
     { name: 'gender', label: 'Gender', type: 'select', options: ['Male', 'Female', 'Other'], defaultValue: 'Male' },
-    { name: 'status', label: 'Status', type: 'select', options: ['New Visa', 'Under Process', 'RP Issued', 'Others'], defaultValue: 'New Visa'},
+    { name: 'status', label: 'Status', type: 'select', options: ['New Visa', 'Applied', 'Under Process', 'Valid for Use', 'RP Issued', 'Others'], defaultValue: 'New Visa'},
     { name: 'notes', label: 'Notes', type: 'textarea', colSpan: 2 },
 ];
 
@@ -2753,9 +3137,18 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [showModal, setShowModal] = useState(false);
     const [editingEntry, setEditingEntry] = useState(null);
     const [activeView, setActiveView] = useState('new'); // 'new', 'processing', 'issued', 'others'
-    const [view, setView] = useState('yearly');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [view, setView] = useState(() => {
+        const saved = localStorage.getItem('dashboard_visa_view');
+        return saved || 'yearly';
+    });
+    const [selectedYear, setSelectedYear] = useState(() => {
+        const saved = localStorage.getItem('dashboard_visa_year');
+        return saved ? Number(saved) : new Date().getFullYear();
+    });
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const saved = localStorage.getItem('dashboard_visa_month');
+        return saved ? Number(saved) : new Date().getMonth();
+    });
     const entriesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/visa_entries`), [userId, appId]);
     const [searchTerm, setSearchTerm] = useState('');
 
@@ -2769,8 +3162,56 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [isImporting, setIsImporting] = useState(false);
     const [isExportingExcel, setIsExportingExcel] = useState(false); // Add this line
     const importFileInputRef = useRef(null);
+    
+    // Pinned visas state
+    const [pinnedVisas, setPinnedVisas] = useState([]);
+    const pinnedSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, 'visaPinned'), [userId, appId]);
+    
+    // Notes state
+    const [noteContent, setNoteContent] = useState('');
+    const [notes, setNotes] = useState([]);
+    const notesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/visa_notes`), [userId, appId]);
+    const [editingNote, setEditingNote] = useState(null);
+    const [showNoteModal, setShowNoteModal] = useState(false);
 
     const tickedItemsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/visaSettings/tickedItems`), [userId, appId]);
+
+    // Persist time filter selections
+    useEffect(() => {
+        localStorage.setItem('dashboard_visa_view', view);
+    }, [view]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_visa_year', selectedYear.toString());
+    }, [selectedYear]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_visa_month', selectedMonth.toString());
+    }, [selectedMonth]);
+
+    // Load pinned visas
+    useEffect(() => {
+        if (!pinnedSettingsRef) return;
+        const unsub = onSnapshot(pinnedSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                setPinnedVisas(data.pinnedIds || []);
+            } else {
+                setPinnedVisas([]);
+            }
+        });
+        return () => unsub();
+    }, [pinnedSettingsRef]);
+
+    // Load notes
+    useEffect(() => {
+        if (!notesRef) return;
+        const unsub = onSnapshot(notesRef, (snapshot) => {
+            const notesList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setNotes(notesList.sort((a, b) => (b.createdAt?.toDate?.() || new Date(0)) - (a.createdAt?.toDate?.() || new Date(0))));
+        });
+        return () => unsub();
+    }, [notesRef]);
 
     const updateTickedInFirestore = useCallback(async (dataToMerge) => {
         if (!tickedItemsRef) return;
@@ -2856,6 +3297,66 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                 updateTickedInFirestore({ tickedEntryIds: [] });
             }
         });
+    };
+
+    const handlePinVisa = async (visa) => {
+        if (!pinnedSettingsRef) return;
+        const newPinnedIds = [...pinnedVisas, visa.id];
+        setPinnedVisas(newPinnedIds);
+        await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+    };
+
+    const handleUnpinVisa = async (visa) => {
+        if (!pinnedSettingsRef) return;
+        const newPinnedIds = pinnedVisas.filter(id => id !== visa.id);
+        setPinnedVisas(newPinnedIds);
+        await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+    };
+
+    const handleSaveNote = async () => {
+        if (!noteContent.trim()) return;
+        try {
+            if (editingNote) {
+                await updateDoc(doc(notesRef, editingNote.id), {
+                    content: noteContent,
+                    updatedAt: serverTimestamp()
+                });
+                setEditingNote(null);
+            } else {
+                await addDoc(notesRef, {
+                    content: noteContent,
+                    createdAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                });
+            }
+            setNoteContent('');
+            setShowNoteModal(false);
+        } catch (error) {
+            console.error("Error saving note:", error);
+        }
+    };
+
+    const handleDeleteNote = async (noteId) => {
+        setConfirmAction({
+            show: true,
+            title: 'Delete Note',
+            message: 'Are you sure you want to delete this note?',
+            onConfirm: async () => {
+                try {
+                    await deleteDoc(doc(notesRef, noteId));
+                } catch (error) {
+                    console.error("Error deleting note:", error);
+                }
+                setConfirmAction({ show: false });
+            },
+            onCancel: () => setConfirmAction({ show: false })
+        });
+    };
+
+    const handleEditNote = (note) => {
+        setEditingNote(note);
+        setNoteContent(note.content);
+        setShowNoteModal(true);
     };
 
     const handleTogglePnlTick = useCallback((entryId) => {
@@ -3356,14 +3857,20 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         return tempEntries;
     }, [entries, view, selectedYear, selectedMonth, searchTerm]);
 
-    const { newVisas, underProcessVisas, rpIssuedVisas, otherVisas } = useMemo(() => {
+    const { newVisas, appliedVisas, underProcessVisas, validForUseVisas, rpIssuedVisas, otherVisas } = useMemo(() => {
         return filteredEntries.reduce((acc, v) => {
             switch (v.status) {
                 case 'New Visa':
                     acc.newVisas.push(v);
                     break;
+                case 'Applied':
+                    acc.appliedVisas.push(v);
+                    break;
                 case 'Under Process':
                     acc.underProcessVisas.push(v);
+                    break;
+                case 'Valid for Use':
+                    acc.validForUseVisas.push(v);
                     break;
                 case 'RP Issued':
                     acc.rpIssuedVisas.push(v);
@@ -3373,11 +3880,11 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                     break;
             }
             return acc;
-        }, { newVisas: [], underProcessVisas: [], rpIssuedVisas: [], otherVisas: [] });
+        }, { newVisas: [], appliedVisas: [], underProcessVisas: [], validForUseVisas: [], rpIssuedVisas: [], otherVisas: [] });
     }, [filteredEntries]);
 
     const handleSave = async (data) => {
-        const pnlStatuses = ['Under Process', 'RP Issued'];
+        const pnlStatuses = ['Under Process', 'Valid for Use', 'RP Issued'];
 
         if (editingEntry) {
             // This is an edit
@@ -3609,45 +4116,43 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         </div>
     );
 
-    const VisaTable = ({ visaList, tickedEntries, onToggleTick, onToggleAllTicks }) => (
-        <div className="overflow-x-auto mt-6">
-            <table className="w-full text-sm table-fixed">
-                <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
-                    <tr>
-                        <th className="p-0 font-semibold w-12">
-                            <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center">
-                                <input
-                                    type="checkbox"
-                                    onChange={onToggleAllTicks}
-                                    checked={visaList.length > 0 && visaList.every(v => tickedEntries.has(v.id))}
-                                    className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
-                                />
-                            </div>
-                        </th>
-                        {/* Changed 'Date' to 'Applied Date' and 'Expiry Date' to 'RP Issued Date' */}
-                        {['S.No', 'Applied Date', 'RP Issued Date', 'VP Number', 'Company', 'Gender', 'Nationality', 'Profession', 'Visa Number', 'Holder Name', 'Status', 'Notes', 'Actions'].map(h => {
-                            const alignClass = h === 'Actions' ? 'text-right' : 'text-left';
-                            let widthClass = '';
-                            if (h === 'S.No') widthClass = 'w-12';
-                            // Adjusted widths slightly to accommodate longer header names
-                            else if (h === 'Applied Date' || h === 'RP Issued Date' || h === 'VP Number' || h === 'Nationality' || h === 'Visa Number') widthClass = 'w-28'; // Increased width
-                            else if (h === 'Company' || h === 'Notes') widthClass = 'w-48';
-                            else if (h === 'Gender') widthClass = 'w-20';
-                            else if (h === 'Profession') widthClass = 'w-32';
-                            else if (h === 'Holder Name') widthClass = 'w-80';
-                            else if (h === 'Status') widthClass = 'w-28';
-                            else if (h === 'Actions') widthClass = 'w-20';
-
-                            return (
-                                <th key={h} className={`p-0 font-semibold ${alignClass} ${widthClass}`}>
-                                    <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">{h}</div>
+    const VisaTable = ({ visaList, tickedEntries, onToggleTick, onToggleAllTicks, pinnedVisas, onPinVisa, onUnpinVisa, showStatus }) => {
+        const allAreTicked = visaList.length > 0 && visaList.every(v => tickedEntries.has(v.id));
+        
+        return (
+            <div className="mt-0">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-xs font-medium border-separate" style={{borderSpacing: '3px 6px'}}>
+                        <thead className="text-[10px] dark:text-gray-400 text-gray-500 uppercase align-middle">
+                            <tr>
+                                <th className="w-8 p-0 font-semibold text-center">
+                                    <div className="dark:bg-slate-900 bg-gray-200 px-1 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px]" title={allAreTicked ? "Deselect All" : "Select All"}>
+                                        <input
+                                            type="checkbox"
+                                            onChange={onToggleAllTicks}
+                                            checked={allAreTicked}
+                                            className="h-3 w-3 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                        />
+                                    </div>
                                 </th>
-                            )
-                        })}
-                    </tr>
-                </thead>
-                <tbody>
-                    {visaList.map((v, i) => {
+                                <th className="w-10 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">No</div></th>
+                                <th className="w-20 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Applied</div></th>
+                                <th className="w-20 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">RP Issued</div></th>
+                                <th className="w-20 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">VP No</div></th>
+                                <th className="w-24 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Company</div></th>
+                                <th className="w-14 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Gender</div></th>
+                                <th className="w-24 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Nationality</div></th>
+                                <th className="w-28 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Profession</div></th>
+                                <th className="w-24 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Visa No</div></th>
+                                <th className="w-36 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Holder Name</div></th>
+                                <th className="w-28 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Care Of</div></th>
+                                <th className="w-20 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Status</div></th>
+                                <th className="w-24 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center text-[10px]">Notes</div></th>
+                                <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-1 py-2 rounded-md border dark:border-slate-700/50 text-[10px] h-[32px] flex items-center justify-center">Actions</div></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {visaList.map((v, i) => {
                         const isTicked = tickedEntries.has(v.id);
                         let rowClass = 'group/row border-b dark:border-gray-700 border-gray-200 transition-colors';
                         let companyClass = 'font-semibold';
@@ -3665,30 +4170,36 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
 
                         return (
                             <tr key={v.id} className={rowClass}>
-                                <td className="p-2 text-center">
+                                <td className="p-1 text-center">
                                     <input
                                         type="checkbox"
                                         checked={isTicked}
                                         onChange={() => onToggleTick(v.id)}
-                                        className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                        className="h-3 w-3 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
                                     />
                                 </td>
-                                <td className="p-2 truncate">{i + 1}</td>
-                                <td className="p-2 truncate">{formatDate(v.date)}</td> {/* Display Applied Date */}
-                                <td className={`p-2 truncate ${expired ? 'text-red-400 font-bold' : ''}`}>{formatDate(v.expiryDate)}</td> {/* Display RP Issued Date */}
-                                <td className="p-2 truncate">{v.vpNumber}</td>
-                                <td className={`p-2 truncate ${companyClass}`}>{v.company}</td>
-                                <td className="p-2 truncate">{v.gender}</td>
-                                <td className="p-2 truncate">{v.nationality}</td>
-                                <td className="p-2 truncate">{v.profession}</td>
-                                <td className="p-2 truncate">{v.visaNumber}</td>
-                                <td className="p-2 font-semibold truncate">{v.name}</td>
-                                <td className="p-2 text-left">{getStatusBadge(v.status)}</td>
-                                <td className="p-2 truncate">{v.notes}</td>
-                                <td className="p-2 text-right">
-                                    <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-end space-x-1">
-                                        <button onClick={() => { setEditingEntry(v); setShowModal(true); }} className="p-1.5 hover:text-cyan-400"><Edit size={14} /></button>
-                                        <button onClick={() => onDeleteRequest(v)} className="p-1.5 hover:text-red-400"><Trash2 size={14} /></button>
+                                <td className="p-1 text-left text-[11px]">{i + 1}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{formatDate(v.date)}</td>
+                                <td className={`p-1 text-left text-[11px] truncate ${expired ? 'text-red-400 font-bold' : ''}`}>{formatDate(v.expiryDate)}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{v.vpNumber}</td>
+                                <td className={`p-1 text-left text-[11px] truncate font-semibold ${companyClass}`}>{v.company}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{v.gender}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{v.nationality}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{v.profession}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{v.visaNumber}</td>
+                                <td className="p-1 text-left text-[11px] truncate font-semibold">{v.name}</td>
+                                <td className="p-1 text-left text-[11px] truncate">{v.careOf}</td>
+                                <td className="p-1 text-left text-[11px]">{getStatusBadge(v.status)}</td>
+                                <td className="p-1 text-left text-[10px] break-words whitespace-normal leading-tight max-w-[96px]">{v.notes}</td>
+                                <td className="p-1 text-center">
+                                    <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-center space-x-0.5">
+                                        {pinnedVisas?.includes(v.id) ? (
+                                            <button onClick={() => onUnpinVisa?.(v)} className="p-1 hover:text-yellow-400" title="Unpin Visa"><PinOff size={12}/></button>
+                                        ) : (
+                                            <button onClick={() => onPinVisa?.(v)} className="p-1 hover:text-yellow-400" title="Pin Visa"><Pin size={12}/></button>
+                                        )}
+                                        <button onClick={() => { setEditingEntry(v); setShowModal(true); }} className="p-1 hover:text-cyan-400"><Edit size={12} /></button>
+                                        <button onClick={() => onDeleteRequest(v)} className="p-1 hover:text-red-400"><Trash2 size={12} /></button>
                                     </div>
                                 </td>
                             </tr>
@@ -3698,7 +4209,9 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
             </table>
             {visaList.length === 0 && <div className="text-center py-8 text-gray-500">No entries in this section.</div>}
         </div>
+    </div>
     );
+};
 
     return (
         <div className="p-4 sm:p-8">
@@ -3706,16 +4219,34 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                 <div className="flex justify-between items-center mt-6 pb-4 border-b-2 dark:border-gray-700 mb-6 flex-wrap gap-4">
                     <nav className="flex items-center flex-wrap gap-2">
                         <button 
+                            onClick={() => setActiveView('all')}
+                            className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'all' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
+                        >
+                            All Visas ({entries.length})
+                        </button>
+                        <button 
                             onClick={() => setActiveView('new')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'new' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
                             New Visas ({newVisas.length})
                         </button>
                         <button 
+                            onClick={() => setActiveView('applied')}
+                            className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'applied' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
+                        >
+                            Applied ({appliedVisas.length})
+                        </button>
+                        <button 
                             onClick={() => setActiveView('processing')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'processing' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
                             Under Process ({underProcessVisas.length})
+                        </button>
+                        <button 
+                            onClick={() => setActiveView('validforuse')}
+                            className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'validforuse' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
+                        >
+                            Valid for Use ({validForUseVisas.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('issued')}
@@ -3735,6 +4266,12 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                         >
                             P&L ({pnlEntries.length})
                         </button>
+                        <button 
+                            onClick={() => setActiveView('notes')}
+                            className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'notes' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
+                        >
+                            Notes ({notes.length})
+                        </button>
                     </nav>
                     <div className="flex items-center space-x-2 flex-wrap gap-2 no-print">
                         {activeView === 'pnl' && tickedPnlEntries.size > 0 && (
@@ -3749,7 +4286,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                                 </button>
                             </>
                         )}
-                        {activeView !== 'pnl' && tickedEntries.size > 0 && (
+                        {(activeView === 'new' || activeView === 'applied' || activeView === 'processing' || activeView === 'validforuse' || activeView === 'issued' || activeView === 'others') && tickedEntries.size > 0 && (
                             <>
                                 <button onClick={handleDeleteSelected} className="flex items-center space-x-2 px-3 py-2 bg-red-500 text-white rounded-md hover:bg-red-600 transition-colors text-sm font-medium">
                                     <Trash2 size={16}/>
@@ -3824,27 +4361,95 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                         >
                             {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
                         </button>
-                        {activeView !== 'pnl' ? (
-                            <button onClick={() => { setEditingEntry(null); setShowModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa Entry">
+                        {activeView === 'pnl' ? (
+                            <button onClick={() => { setEditingPnlEntry(null); setShowPnlModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa P&L Entry">
+                                <PlusCircle size={20}/>
+                            </button>
+                        ) : activeView === 'notes' ? (
+                            <button onClick={() => { setEditingNote(null); setNoteContent(''); setShowNoteModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Note">
                                 <PlusCircle size={20}/>
                             </button>
                         ) : (
-                            <button onClick={() => { setEditingPnlEntry(null); setShowPnlModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa P&L Entry">
+                            <button onClick={() => { setEditingEntry(null); setShowModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa Entry">
                                 <PlusCircle size={20}/>
                             </button>
                         )}
                     </div>
                 </div>
                 
-                {activeView === 'new' && <VisaTable visaList={newVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(newVisas)} />}
-                {activeView === 'processing' && <VisaTable visaList={underProcessVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(underProcessVisas)} />}
-                {activeView === 'issued' && <VisaTable visaList={rpIssuedVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(rpIssuedVisas)} />}
-                {activeView === 'others' && <VisaTable visaList={otherVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(otherVisas)} />}
+                
+                {activeView === 'all' && <VisaTable visaList={filteredEntries} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(filteredEntries)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} showStatus={true} />}
+                {activeView === 'new' && <VisaTable visaList={newVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(newVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
+                {activeView === 'applied' && <VisaTable visaList={appliedVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(appliedVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
+                {activeView === 'processing' && <VisaTable visaList={underProcessVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(underProcessVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
+                {activeView === 'validforuse' && <VisaTable visaList={validForUseVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(validForUseVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
+                {activeView === 'issued' && <VisaTable visaList={rpIssuedVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(rpIssuedVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
+                {activeView === 'others' && <VisaTable visaList={otherVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(otherVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
                 {activeView === 'pnl' && <VisaPnlTable pnlList={filteredPnlEntries} totals={pnlTotals} tickedEntries={tickedPnlEntries} onToggleTick={handleTogglePnlTick} onToggleAllTicks={() => handleToggleAllPnlTicks(filteredPnlEntries)} />}
+                {activeView === 'notes' && (
+                    <div className="space-y-4">
+                        {notes.length === 0 ? (
+                            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
+                                <BookOpen size={32} className="mx-auto mb-3 opacity-50" />
+                                <p>No notes yet. Add one to get started!</p>
+                            </div>
+                        ) : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {notes.map(note => (
+                                    <div key={note.id} className="p-4 border rounded-lg dark:bg-gray-800 dark:border-gray-700 bg-gray-50 border-gray-200">
+                                        <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap text-sm">{note.content}</p>
+                                        <div className="flex justify-between items-center mt-3 text-xs text-gray-500 dark:text-gray-400">
+                                            <span>{note.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A'}</span>
+                                            <div className="flex gap-2">
+                                                <button onClick={() => handleEditNote(note)} className="hover:text-blue-500 transition-colors">
+                                                    <Edit2 size={14} />
+                                                </button>
+                                                <button onClick={() => handleDeleteNote(note.id)} className="hover:text-red-500 transition-colors">
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+                )}
 
             </section>
             <GenericAddEditModal isOpen={showModal} onSave={handleSave} onClose={() => setShowModal(false)} initialData={editingEntry} formFields={visaFormFields} title="Visa Entry"/>
             <GenericAddEditModal isOpen={showPnlModal} onSave={handlePnlSave} onClose={() => setShowPnlModal(false)} initialData={editingPnlEntry} formFields={visaPnlFormFields} title="Visa P&L Entry"/>
+            {showNoteModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+                    <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-lg">
+                        <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">{editingNote ? 'Edit Note' : 'Add Note'}</h3>
+                        <textarea
+                            value={noteContent}
+                            onChange={(e) => setNoteContent(e.target.value)}
+                            placeholder="Type your note here..."
+                            className="w-full h-40 p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-gray-800 resize-none focus:outline-none focus:border-cyan-500"
+                        />
+                        <div className="flex gap-2 justify-end mt-4">
+                            <button
+                                onClick={() => {
+                                    setShowNoteModal(false);
+                                    setNoteContent('');
+                                    setEditingNote(null);
+                                }}
+                                className="px-4 py-2 rounded-lg bg-gray-300 dark:bg-gray-700 text-gray-800 dark:text-white hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleSaveNote}
+                                className="px-4 py-2 rounded-lg bg-cyan-500 text-white hover:bg-cyan-600 transition-colors"
+                            >
+                                Save
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
@@ -4469,6 +5074,126 @@ const StatementsPage = ({ userId, appId, currency, setConfirmAction }) => {
     );
 };
 
+// --- PayCards Page Component ---
+const PayCardsPage = ({ userId, appId, setLastAction, setConfirmAction, theme, currency }) => {
+    const [payCards, setPayCards] = useState([]);
+    const [loading, setLoading] = useState(true);
+    const [searchTerm, setSearchTerm] = useState('');
+
+    useEffect(() => {
+        if (!userId || appId === 'default-app-id') return;
+
+        let isMounted = true;
+        let completed = 0;
+        const allCards = [];
+
+        const fetchCompanyCards = (collectionPath, company) => {
+            return onSnapshot(collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), (snapshot) => {
+                const companyCards = [];
+                snapshot.forEach((doc) => {
+                    const data = doc.data();
+                    if (data.payCard) {
+                        companyCards.push({
+                            id: `${company}-${doc.id}`,
+                            docId: doc.id,
+                            company: company,
+                            employeeName: data.fullName || '',
+                            payCard: data.payCard,
+                            payCardPin: data.payCardPin || '',
+                            payCardExpiry: data.payCardExpiry || null,
+                            payCardCancelled: data.payCardCancelled || false,
+                        });
+                    }
+                });
+                
+                if (isMounted) {
+                    const filtered = allCards.filter(c => c.company !== company);
+                    filtered.push(...companyCards);
+                    allCards.length = 0;
+                    allCards.push(...filtered);
+                    setPayCards([...filtered]);
+                    completed++;
+                    if (completed === 2) setLoading(false);
+                }
+            });
+        };
+
+        const unsub1 = fetchCompanyCards('alMarriData', 'Al Marri');
+        const unsub2 = fetchCompanyCards('fathoomData', 'Fathoom');
+
+        return () => {
+            isMounted = false;
+            unsub1();
+            unsub2();
+        };
+    }, [userId, appId]);
+
+    const filteredCards = payCards.filter(card =>
+        card.employeeName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        card.payCard.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        card.company.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+
+    if (loading) return <div className="p-4 text-center dark:text-gray-300">Loading Pay Cards...</div>;
+
+    return (
+        <div className="p-6">
+            <div className="mb-6">
+                <h1 className="text-3xl font-bold mb-4">Pay Cards Management</h1>
+                <div className="relative max-w-md">
+                    <input
+                        type="text"
+                        placeholder="Search by employee name, card number, or company..."
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                        className="w-full p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md pl-8 border dark:border-gray-600 border-gray-300"
+                    />
+                    <Search size={18} className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400" />
+                </div>
+            </div>
+
+            <div className="overflow-x-auto">
+                <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
+                    <thead className="text-xs dark:text-gray-400 text-gray-600 uppercase">
+                        <tr>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Employee Name</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Company</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Card Number</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Card PIN</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Expiry Date</div></th>
+                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Status</div></th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {filteredCards.map((card) => {
+                            const isExpired = card.payCardExpiry && isDateExpired(card.payCardExpiry);
+                            const cellClassName = `p-2 dark:bg-gray-800/50 bg-gray-50`;
+                            return (
+                                <tr key={card.id} className="group/row">
+                                    <td className={`${cellClassName} rounded-l-md font-semibold`}>{card.employeeName}</td>
+                                    <td className={cellClassName}>{card.company}</td>
+                                    <td className={`${cellClassName} font-mono text-blue-400`}>{card.payCard}</td>
+                                    <td className={`${cellClassName} font-mono`}>{card.payCardPin || '-'}</td>
+                                    <td className={cellClassName}>{card.payCardExpiry ? formatDate(card.payCardExpiry) : '-'}</td>
+                                    <td className={`${cellClassName} rounded-r-md`}>
+                                        <span className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                                            card.payCardCancelled ? 'bg-red-500/20 text-red-400' :
+                                            isExpired ? 'bg-orange-500/20 text-orange-400' :
+                                            'bg-green-500/20 text-green-400'
+                                        }`}>
+                                            {card.payCardCancelled ? 'Cancelled' : isExpired ? 'Expired' : 'Active'}
+                                        </span>
+                                    </td>
+                                </tr>
+                            );
+                        })}
+                    </tbody>
+                </table>
+                {filteredCards.length === 0 && <div className="text-center py-8 dark:text-gray-400 text-gray-600">No pay cards found.</div>}
+            </div>
+        </div>
+    );
+};
 
 // --- Passcode Settings Page Component ---
 const PasscodeSettingsPage = ({ userId, appId, setConfirmAction }) => {
@@ -4693,17 +5418,27 @@ const PasscodeSettingsPage = ({ userId, appId, setConfirmAction }) => {
 // --- Main App Component ---
 export default function App() {
     const [showLanding, setShowLanding] = useState(true); // Show landing page initially
-    const [currentPage, setCurrentPage] = useState('notification');
-    const [activeSubPage, setActiveSubPage] = useState('employees');
+    const [currentPage, setCurrentPage] = useState(() => {
+        const saved = localStorage.getItem('dashboard_currentPage');
+        return saved || 'notification';
+    });
+    const [activeSubPage, setActiveSubPage] = useState(() => {
+        const saved = localStorage.getItem('dashboard_activeSubPage');
+        return saved || 'employees';
+    });
     const [user, setUser] = useState(null);
     const [loading, setLoading] = useState(true);
     const [appId, setAppId] = useState('default-app-id');
-    const [theme, setTheme] = useState('dark');
+    const [theme, setTheme] = useState(() => {
+        const saved = localStorage.getItem('dashboard_theme');
+        return saved || 'dark';
+    });
     const [lastAction, setLastAction] = useState(null);
     const [showUndoMessage, setShowUndoMessage] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
     const [showSettingsModal, setShowSettingsModal] = useState(false);
     const [showSearchModal, setShowSearchModal] = useState(false);
+    const [showMonthlyPdfReminder, setShowMonthlyPdfReminder] = useState(false);
     const [isLocked, setIsLocked] = useState(true); // Start locked
     const [passcodeSettings, setPasscodeSettings] = useState(null); // { hash: '...', hint: '...' }
     const [passcodeLoading, setPasscodeLoading] = useState(true);
@@ -4801,7 +5536,19 @@ export default function App() {
         setTheme(prev => (prev === 'dark' ? 'light' : 'dark'));
     };
 
+    // Persist currentPage to localStorage
     useEffect(() => {
+        localStorage.setItem('dashboard_currentPage', currentPage);
+    }, [currentPage]);
+
+    // Persist activeSubPage to localStorage
+    useEffect(() => {
+        localStorage.setItem('dashboard_activeSubPage', activeSubPage);
+    }, [activeSubPage]);
+
+    // Persist theme to localStorage and apply dark class
+    useEffect(() => {
+        localStorage.setItem('dashboard_theme', theme);
         // Tailwind's dark variant expects a parent with 'dark' class; ensure both <html> and <body> reflect theme
         const root = document.documentElement;
         const body = document.body;
@@ -4813,6 +5560,46 @@ export default function App() {
             body.classList.remove('dark');
         }
     }, [theme]);
+
+    // Check for end-of-month and show PDF reminder
+    useEffect(() => {
+        if (!user || showLanding) return;
+        
+        const checkMonthlyReminder = () => {
+            const today = new Date();
+            const currentDay = today.getDate();
+            const lastDayOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+            const isEndOfMonth = currentDay >= lastDayOfMonth - 2; // Last 3 days of month
+            
+            if (isEndOfMonth) {
+                const lastPdfSave = localStorage.getItem('dashboard_lastPdfSave');
+                const lastSaveDate = lastPdfSave ? new Date(lastPdfSave) : null;
+                
+                // Check if we haven't saved this month yet
+                const shouldShowReminder = !lastSaveDate || 
+                    lastSaveDate.getMonth() !== today.getMonth() || 
+                    lastSaveDate.getFullYear() !== today.getFullYear();
+                
+                // Check if we've dismissed the reminder today
+                const reminderDismissed = localStorage.getItem('dashboard_reminderDismissed');
+                const dismissedDate = reminderDismissed ? new Date(reminderDismissed) : null;
+                const isDismissedToday = dismissedDate && 
+                    dismissedDate.getDate() === today.getDate() &&
+                    dismissedDate.getMonth() === today.getMonth() &&
+                    dismissedDate.getFullYear() === today.getFullYear();
+                
+                if (shouldShowReminder && !isDismissedToday) {
+                    setShowMonthlyPdfReminder(true);
+                }
+            }
+        };
+        
+        // Check on mount and daily
+        checkMonthlyReminder();
+        const interval = setInterval(checkMonthlyReminder, 24 * 60 * 60 * 1000); // Check daily
+        
+        return () => clearInterval(interval);
+    }, [user, showLanding]);
 
     const handleDownloadReport = async () => {
         if (!window.jspdf || !window.html2canvas) { console.error("PDF libraries are not loaded yet."); return; }
@@ -4827,15 +5614,28 @@ export default function App() {
                 elementsToHide.forEach(el => el.style.visibility = 'hidden');
 
                 const canvas = await window.html2canvas(elementToPrint, { 
-                    scale: 2,
-                    backgroundColor: theme === 'dark' ? '#111827' : '#ffffff' 
+                    scale: 3,
+                    useCORS: true,
+                    allowTaint: true,
+                    logging: false,
+                    backgroundColor: theme === 'dark' ? '#111827' : '#ffffff',
+                    windowWidth: elementToPrint.scrollWidth,
+                    windowHeight: elementToPrint.scrollHeight,
+                    scrollX: 0,
+                    scrollY: 0,
+                    imageTimeout: 15000,
+                    removeContainer: true
                 });
                 
                 elementsToHide.forEach(el => el.style.visibility = 'visible');
 
-                const imgData = canvas.toDataURL('image/png'); const imgProps = pdf.getImageProperties(imgData); const pdfWidth = pdf.internal.pageSize.getWidth(); const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width; if (pagesToExport.indexOf(pageId) > 0) { pdf.addPage(); } pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight); resolve(); }, 1000); });
+                const imgData = canvas.toDataURL('image/png', 1.0); const imgProps = pdf.getImageProperties(imgData); const pdfWidth = pdf.internal.pageSize.getWidth(); const pdfHeight = (imgProps.height * pdfWidth) / imgProps.width; if (pagesToExport.indexOf(pageId) > 0) { pdf.addPage(); } pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight, undefined, 'FAST'); resolve(); }, 1500); });
         }
-        pdf.save("financial_report.pdf"); setCurrentPage(originalPage);
+        const today = new Date();
+        const fileName = `dashboard_report_${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}.pdf`;
+        pdf.save(fileName); setCurrentPage(originalPage);
+        // Update last PDF save date
+        localStorage.setItem('dashboard_lastPdfSave', today.toISOString());
     };
     
     const handlePageChange = (page) => {
@@ -4880,6 +5680,7 @@ export default function App() {
                 </ErrorBoundary>
             );
             case 'notification': return <NotificationPage userId={user.uid} appId={appId} />;
+            case 'paycards': return <PayCardsPage {...commonProps} />;
             case 'passcode_settings': return <PasscodeSettingsPage {...commonProps} />;
             default: return <CompanyPageContent pageTitle="Mohamed Al Marri Trading" collectionPrefix="alMarri" activeSubPage={activeSubPage} {...commonProps} />;
                         }
@@ -5020,6 +5821,23 @@ export default function App() {
             {renderPage()}
             {showSettingsModal && <NavigationSettingsModal userId={user?.uid} appId={appId} onClose={() => setShowSettingsModal(false)} />}
             {showSearchModal && <UniversalSearchModal userId={user?.uid} appId={appId} onClose={() => setShowSearchModal(false)} />}
+            {showMonthlyPdfReminder && (
+                <MonthlyPdfReminderModal 
+                    onDownload={() => {
+                        setShowMonthlyPdfReminder(false);
+                        handleDownloadReport();
+                    }}
+                    onDismiss={() => {
+                        setShowMonthlyPdfReminder(false);
+                        localStorage.setItem('dashboard_reminderDismissed', new Date().toISOString());
+                    }}
+                    onClose={() => {
+                        setShowMonthlyPdfReminder(false);
+                        const today = new Date();
+                        localStorage.setItem('dashboard_lastPdfSave', today.toISOString());
+                    }}
+                />
+            )}
             {confirmAction && <ConfirmationModal details={confirmAction} onConfirm={handleConfirm} onCancel={() => setConfirmAction(null)} />}
             {showUndoMessage && ( <div className="fixed bottom-5 left-1/2 -translate-x-1/2 bg-green-500 text-white px-4 py-2 rounded-lg shadow-lg z-[101]"> {showUndoMessage} </div> )}
         </div>
@@ -5069,19 +5887,19 @@ const Header = ({ userId, appId, onUndoClick, toggleTheme, theme, currentPage, s
     }, [settingsRef]);
 
     return (
-        <header className="dark:bg-gray-800 bg-white dark:text-white text-gray-800 p-3 sticky top-0 z-50 shadow-md flex items-center justify-between w-full flex-wrap gap-2">
-            <div className="flex items-center space-x-4 flex-1 min-w-[200px]">
+        <header className="dark:bg-gray-800 bg-white dark:text-white text-gray-800 pt-20 pb-4 px-3 sticky top-0 z-50 shadow-md flex items-center justify-between w-full flex-wrap gap-4">
+            <div className="flex items-center space-x-4 flex-1 min-w-[200px] -mt-28 order-1">
                 <DateTimeLocationBadge />
                 <LastUpdatedBadge />
             </div>
 
-            <nav className="flex items-center justify-center space-x-1 sm:space-x-2 flex-grow my-2 md:my-0 order-3 sm:order-2 w-full sm:w-auto">
+            <nav className="flex items-center justify-center space-x-1 sm:space-x-2 flex-grow my-4 md:my-0 order-3 sm:order-2 w-full sm:w-auto">
                  {/* Restore the mapping of navLinks */}
                  {navLinks.map(page => (
                     <button
                         key={page.id}
                         onClick={() => setCurrentPage(page.id)}
-                        className={`flex items-center space-x-2 px-3 py-2 text-sm sm:text-base font-bold rounded-full transition-all duration-300 transform hover:scale-105 flex-grow sm:flex-grow-0 ${
+                        className={`flex items-center space-x-2 px-4 py-3 text-sm sm:text-base font-bold rounded-full transition-all duration-300 transform hover:scale-105 flex-grow sm:flex-grow-0 ${
                             currentPage === page.id
                                 ? `bg-gradient-to-r ${page.gradient} text-white shadow-lg`
                                 : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300'
@@ -5698,6 +6516,54 @@ const LockScreen = ({ onUnlock, hint, correctHash }) => {
     );
 };
 
+// Monthly PDF Reminder Modal
+const MonthlyPdfReminderModal = ({ onDownload, onDismiss, onClose }) => {
+    const today = new Date();
+    const monthName = today.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+    
+    return (
+        <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-[200] p-4">
+            <div className="dark:bg-gray-800 bg-white p-8 rounded-lg shadow-2xl w-full max-w-md text-center">
+                <div className="mb-6">
+                    <FileText size={64} className="mx-auto text-cyan-400 mb-4" />
+                    <h3 className="text-2xl font-bold mb-2 dark:text-white text-gray-800">End of Month Reminder</h3>
+                    <p className="dark:text-gray-300 text-gray-600 mb-2">
+                        It's the end of <span className="font-semibold text-cyan-400">{monthName}</span>
+                    </p>
+                    <p className="dark:text-gray-400 text-gray-500 text-sm">
+                        Would you like to save your dashboard as PDF for your records?
+                    </p>
+                </div>
+                
+                <div className="flex flex-col space-y-3">
+                    <button 
+                        onClick={onDownload}
+                        className="w-full flex items-center justify-center space-x-2 px-6 py-3 bg-cyan-600 text-white rounded-md hover:bg-cyan-700 transition-colors font-medium"
+                    >
+                        <Download size={20} />
+                        <span>Save Dashboard as PDF</span>
+                    </button>
+                    
+                    <div className="flex space-x-3">
+                        <button 
+                            onClick={onDismiss}
+                            className="flex-1 px-6 py-2 dark:bg-gray-700 bg-gray-200 dark:text-gray-300 text-gray-700 rounded-md dark:hover:bg-gray-600 hover:bg-gray-300 transition-colors text-sm"
+                        >
+                            Remind Me Tomorrow
+                        </button>
+                        <button 
+                            onClick={onClose}
+                            className="flex-1 px-6 py-2 dark:bg-gray-700 bg-gray-200 dark:text-gray-300 text-gray-700 rounded-md dark:hover:bg-gray-600 hover:bg-gray-300 transition-colors text-sm"
+                        >
+                            Not This Month
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmAction, currency }) => {
     const [entries, setEntries] = useState([]);
     const [showModal, setShowModal] = useState(false);
@@ -5705,15 +6571,37 @@ const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmA
     const [employees, setEmployees] = useState([]);
     const employeeNames = useMemo(() => employees.map(e => e.fullName).filter(Boolean).sort(), [employees]);
 
-    const [view, setView] = useState('all');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [view, setView] = useState(() => {
+        const saved = localStorage.getItem('dashboard_employeePnl_view');
+        return saved || 'all';
+    });
+    const [selectedYear, setSelectedYear] = useState(() => {
+        const saved = localStorage.getItem('dashboard_employeePnl_year');
+        return saved ? Number(saved) : new Date().getFullYear();
+    });
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const saved = localStorage.getItem('dashboard_employeePnl_month');
+        return saved ? Number(saved) : new Date().getMonth();
+    });
     const [searchTerm, setSearchTerm] = useState('');
     const [tickedEntries, setTickedEntries] = useState(new Set());
 
     const entriesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
     const companyPrefix = collectionPath.replace('EmployeePnl', '');
     const employeeDataRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${companyPrefix}Data`), [userId, appId, companyPrefix]);
+
+    // Persist time filter selections
+    useEffect(() => {
+        localStorage.setItem('dashboard_employeePnl_view', view);
+    }, [view]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_employeePnl_year', selectedYear.toString());
+    }, [selectedYear]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_employeePnl_month', selectedMonth.toString());
+    }, [selectedMonth]);
 
     useEffect(() => {
         const unsubEntries = onSnapshot(entriesRef, snapshot => {
@@ -6369,9 +7257,18 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     const [isExportingExcel, setIsExportingExcel] = useState(false); // <-- Add this new state
     const importFileInputRef = useRef(null);
 
-    const [view, setView] = useState('recent');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [view, setView] = useState(() => {
+        const saved = localStorage.getItem('dashboard_business_view');
+        return saved || 'recent';
+    });
+    const [selectedYear, setSelectedYear] = useState(() => {
+        const saved = localStorage.getItem('dashboard_business_year');
+        return saved ? Number(saved) : new Date().getFullYear();
+    });
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const saved = localStorage.getItem('dashboard_business_month');
+        return saved ? Number(saved) : new Date().getMonth();
+    });
     const [nameFilter, setNameFilter] = useState('');
     const [descriptionFilter, setDescriptionFilter] = useState('');
     const [showNameFilter, setShowNameFilter] = useState(false);
@@ -6396,6 +7293,19 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     const businessDescriptionsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/settings/businessDescriptions`), [userId, appId]);
 
     const tickedEntriesRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/businessSettings/tickedEntries`), [userId, appId]);
+
+    // Persist time filter selections
+    useEffect(() => {
+        localStorage.setItem('dashboard_business_view', view);
+    }, [view]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_business_year', selectedYear.toString());
+    }, [selectedYear]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_business_month', selectedMonth.toString());
+    }, [selectedMonth]);
 
     const updateTickedEntriesInFirestore = useCallback(async (newSet) => {
         if (!tickedEntriesRef) return;
@@ -6671,7 +7581,14 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
     // Helper to format data for Excel
     const processAndAddSheet = (data, sheetName, wb) => {
         if (data.length === 0) return;
-        const formattedData = data.map(item => {
+        // Sort data by date in ascending order
+        const sortedData = [...data].sort((a, b) => {
+            const dateA = getDateFromField(a.date) || new Date(0);
+            const dateB = getDateFromField(b.date) || new Date(0);
+            return dateA - dateB;
+        });
+        
+        const formattedData = sortedData.map(item => {
             const { id, source_path, ...rest } = item; // Exclude internal fields
             const newItem = {};
             for (const key in rest) {
@@ -6692,7 +7609,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         window.XLSX.utils.book_append_sheet(wb, ws, safeSheetName);
     };
 
-    // New handler function in BusinessPage
+    // New handler function in BusinessPage - Export all entries
     const handleExportExcel = () => {
         if (!window.XLSX) {
             alert("Excel export library is not ready. Please try again in a moment.");
@@ -6700,8 +7617,8 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         }
 
         setConfirmAction({
-            title: 'Export Business (BS1) Excel',
-            message: 'This will export all business sections to a single Excel file, with one sheet per section. Proceed?',
+            title: 'Export All Business Entries to Excel',
+            message: 'This will export all business entries (sorted by date) to a single Excel file, with one sheet per section. Proceed?',
             confirmText: 'Export',
             type: 'save',
             action: async () => {
@@ -6716,7 +7633,61 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                         processAndAddSheet(sectionEntries, section.title, wb); 
                     });
                     
-                    window.XLSX.writeFile(wb, `business_bs1_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+                    window.XLSX.writeFile(wb, `business_all_export_${new Date().toISOString().split('T')[0]}.xlsx`);
+
+                } catch (error) {
+                    console.error("Excel Export failed:", error);
+                    alert("An error occurred during the Excel export.");
+                } finally {
+                    setIsExportingExcel(false);
+                }
+            }
+        });
+    };
+
+    // Export only ticked (selected) entries
+    const handleExportSelectedExcel = () => {
+        if (!window.XLSX) {
+            alert("Excel export library is not ready. Please try again in a moment.");
+            return;
+        }
+
+        if (tickedEntries.size === 0) {
+            alert("No entries selected. Please select entries to export.");
+            return;
+        }
+
+        setConfirmAction({
+            title: 'Export Selected Business Entries to Excel',
+            message: `This will export ${tickedEntries.size} selected business entries (sorted by date) to an Excel file. Proceed?`,
+            confirmText: 'Export',
+            type: 'save',
+            action: async () => {
+                setIsExportingExcel(true);
+                try {
+                    const wb = window.XLSX.utils.book_new();
+                    
+                    // Filter only ticked entries
+                    const tickedBusinessEntries = allBusinessEntries.filter(e => tickedEntries.has(e.id));
+                    
+                    // Group by section and export each section
+                    const entriesBySection = {};
+                    tickedBusinessEntries.forEach(entry => {
+                        if (!entriesBySection[entry.source_path]) {
+                            entriesBySection[entry.source_path] = [];
+                        }
+                        entriesBySection[entry.source_path].push(entry);
+                    });
+                    
+                    // Add sheets for each section with ticked entries
+                    allDisplaySections.forEach(section => {
+                        const sectionEntries = entriesBySection[section.collectionPath] || [];
+                        if (sectionEntries.length > 0) {
+                            processAndAddSheet(sectionEntries, section.title, wb);
+                        }
+                    });
+                    
+                    window.XLSX.writeFile(wb, `business_selected_export_${new Date().toISOString().split('T')[0]}.xlsx`);
 
                 } catch (error) {
                     console.error("Excel Export failed:", error);
@@ -7295,7 +8266,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                             <button 
                                 onClick={handleExportExcel} 
                                 disabled={isExportingExcel || isExporting || isImporting || isClearingData} 
-                                title="Export Business (BS1) to Excel" 
+                                title="Export Business to Excel" 
                                 className="p-2 dark:bg-green-700 bg-green-100 rounded-full dark:hover:bg-green-600 hover:bg-green-200 transition-all duration-300 disabled:opacity-50 border dark:border-green-600 border-green-300 dark:text-white text-green-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isExportingExcel ? <Loader2 size={18} className="animate-spin" /> : <ArrowUp size={18}/>}
@@ -7315,10 +8286,6 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                                 className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
-                            </button>
-                            {/* Clear All Button */}
-                            <button onClick={handleClearBusinessData} disabled={isClearingData || isExportingExcel} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                                {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                             </button>
                              <AddNewBusinessSection onAdd={handleAddSection} />
                         </div>
@@ -7363,7 +8330,7 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
         gender: '',
         idCopyUrl: '', ppCopyUrl: '', lcCopyUrl: '', settleDocUrl: '',
         joinDate: '', departedDate: '', passport: '', passportExpiry: '',
-        payCard: '', payCardPin: '', payCardExpiry: '',
+        payCard: '', payCardPin: '', payCardExpiry: '', payCardStatus: 'Apply for New',
         labourContract: '', labourContractExpiry: '',
         contact2: '', contact3: '', address: '', notes: '',
         photoURL: '', storagePath: '',
@@ -7727,7 +8694,7 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
 
     return (
         <div className="fixed inset-0 bg-black bg-opacity-70 flex justify-center items-center z-50 p-4 overflow-y-auto">
-            <div className="dark:bg-gray-800 bg-white rounded-xl shadow-2xl w-full max-w-5xl my-8">
+            <div className="dark:bg-gray-800 bg-white rounded-xl shadow-2xl w-full max-w-7xl lg:max-w-6xl md:max-w-4xl sm:max-w-2xl my-8">
                 {/* Header */}
                 <div className="flex justify-between items-center px-6 py-4 border-b dark:border-gray-700 border-gray-300">
                     <h3 className="text-xl font-bold text-cyan-400">{initialData ? 'Edit Employee' : 'Add New Employee'}</h3>
@@ -7736,7 +8703,7 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
 
                 {errorMessage && <div className="mx-6 mt-4 bg-red-500/20 text-red-300 p-3 rounded-md text-sm">{errorMessage}</div>}
                 
-                <div className="max-h-[75vh] overflow-y-auto px-6 py-4">
+                <div className="max-h-[80vh] overflow-y-auto px-6 py-4">
                     {/* Two Column Layout */}
                     <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
                         {/* Left Column - Photo */}
@@ -7892,6 +8859,16 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
                                     <div>
                                         <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Pay Card Expiry</label>
                                         <DateInput value={formData.payCardExpiry} onChange={val => setFormData(p => ({ ...p, payCardExpiry: val }))} />
+                                    </div>
+                                    <div>
+                                        <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Pay Card Status</label>
+                                        <select name="payCardStatus" value={formData.payCardStatus || 'Apply for New'} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none">
+                                            <option value="Apply for New">Apply for New</option>
+                                            <option value="Applied">Applied</option>
+                                            <option value="Active">Active</option>
+                                            <option value="Expired">Expired</option>
+                                            <option value="Own Cards">Own Cards</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label className="block text-xs mb-1 dark:text-gray-400 text-gray-600">Contact 2</label>
@@ -8197,16 +9174,16 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
         };
 
         return (
-            <span className={`px-2 py-1 text-xs font-semibold rounded-full ${colorClasses[status.color]}`}>
+            <span className={`inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold rounded-full whitespace-nowrap h-5 ${colorClasses[status.color]}`}>
                 {status.text}
             </span>
         );
     };
 
     const CheckboxCell = ({ checked, isTicked }) => (
-        <td className={`p-3 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`}>
-            <div className={`w-6 h-6 mx-auto rounded-full flex items-center justify-center border-2 ${checked ? 'border-green-400 bg-green-500/10' : 'border-red-400 bg-red-500/10'}`}>
-                 {checked ? <CheckCircle size={14} className="text-green-400" /> : <X size={14} className="text-red-400" />}
+        <td className={`p-1 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`}>
+            <div className={`w-5 h-5 mx-auto rounded-full flex items-center justify-center border-2 ${checked ? 'border-green-400 bg-green-500/10' : 'border-red-400 bg-red-500/10'}`}>
+                 {checked ? <CheckCircle size={12} className="text-green-400" /> : <X size={12} className="text-red-400" />}
             </div>
         </td>
     );
@@ -8215,7 +9192,7 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
         const key = `${employee.id}_${type}`;
         const state = docUploadStates[key] || { uploading: false, error: null };
         const hasDoc = !!employee[urlField];
-        const baseClass = `p-2 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
+        const baseClass = `p-1 text-center rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
         const inputId = `file_input_${employee.id}_${type}`;
         const onFileChange = (e) => {
             const file = e.target.files[0];
@@ -8226,11 +9203,11 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
         // Get appropriate icon based on document type
         const getDocIcon = () => {
             switch(type) {
-                case 'idCopy': return <IdCard size={18} />;
-                case 'ppCopy': return <BookUser size={18} />;
-                case 'lcCopy': return <FileText size={18} />;
-                case 'settle': return <HandCoins size={18} />;
-                default: return <FileUp size={18} />;
+                case 'idCopy': return <IdCard size={14} />;
+                case 'ppCopy': return <BookUser size={14} />;
+                case 'lcCopy': return <FileText size={14} />;
+                case 'settle': return <HandCoins size={14} />;
+                default: return <FileUp size={14} />;
             }
         };
         
@@ -8238,12 +9215,12 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
             <td className={baseClass}>
                 {state.uploading ? (
                     <div className="flex items-center justify-center">
-                        <Loader2 size={18} className="animate-spin text-cyan-400" title={`Uploading ${label}...`} />
+                        <Loader2 size={14} className="animate-spin text-cyan-400" title={`Uploading ${label}...`} />
                     </div>
                 ) : (
-                    <div className="flex items-center justify-center space-x-1">
+                    <div className="flex items-center justify-center gap-0.5">
                         <label 
-                            className={`flex items-center justify-center p-1 cursor-pointer transition-colors ${hasDoc ? 'text-green-400' : 'text-red-400 hover:text-red-300'}`}
+                            className={`flex items-center justify-center p-0.5 cursor-pointer transition-colors ${hasDoc ? 'text-green-400' : 'text-red-400 hover:text-red-300'}`}
                             title={hasDoc ? `View/Replace ${label} document` : `Upload ${label} document`} 
                             htmlFor={inputId}
                         >
@@ -8252,16 +9229,16 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                         {hasDoc && (
                             <button
                                 onClick={() => onOpenDocPreview(employee[urlField], label, employee.fullName)}
-                                className="p-1 hover:text-cyan-400 transition-colors"
+                                className="p-0.5 hover:text-cyan-400 transition-colors"
                                 title={`View ${label} document`}
                             >
-                                <Eye size={14} />
+                                <Eye size={12} />
                             </button>
                         )}
                     </div>
                 )}
                 <input id={inputId} type="file" accept="application/pdf" className="hidden" onChange={onFileChange} />
-                {state.error && <div className="mt-1 text-[10px] text-red-400">{state.error}</div>}
+                {state.error && <div className="mt-0.5 text-[9px] text-red-400">{state.error}</div>}
             </td>
         );
     };
@@ -8271,53 +9248,53 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
     return (
         <div className="mt-0">
             <div className="overflow-x-auto">
-                <table className="w-full text-sm font-medium border-separate table-fixed" style={{borderSpacing: '4px 8px', minWidth: '1650px'}}>
-                    <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase align-middle">
+                <table className="w-full text-xs font-medium border-separate" style={{borderSpacing: '3px 6px'}}>
+                    <thead className="text-[10px] dark:text-gray-400 text-gray-500 uppercase align-middle">
                         <tr>
-                            <th className="w-12 p-0 font-semibold text-center">
-                                <div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center" title={allAreTicked ? "Deselect All" : "Select All"}>
+                            <th className="w-8 p-0 font-semibold text-center">
+                                <div className="dark:bg-slate-900 bg-gray-200 px-1 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px]" title={allAreTicked ? "Deselect All" : "Select All"}>
                                     <input
                                         type="checkbox"
                                         onChange={onToggleAllTicks}
                                         checked={allAreTicked}
-                                        className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                        className="h-3 w-3 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
                                     />
                                 </div>
                             </th>
-                            <th className="w-12 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
-                            <EditableTH initialValue={headers.eNo} onSave={(val) => onHeaderSave('eNo', val)} className="w-20" />
-                            <EditableTH initialValue={headers.gender} onSave={(val) => onHeaderSave('gender', val)} className="w-16" />
-                            <EditableTH initialValue={headers.fullName} onSave={(val) => onHeaderSave('fullName', val)} className="w-80" />
-                            <EditableTH initialValue={headers.nationality} onSave={(val) => onHeaderSave('nationality', val)} className="w-32" />
-                            <EditableTH initialValue={headers.profession} onSave={(val) => onHeaderSave('profession', val)} className="w-48" />
-                            <EditableTH initialValue={headers.qid} onSave={(val) => onHeaderSave('qid', val)} className="w-36" />
-                            <EditableTH initialValue={headers.qidExpiry} onSave={(val) => onHeaderSave('qidExpiry', val)} className="w-28" />
-                            <EditableTH initialValue={headers.contact1} onSave={(val) => onHeaderSave('contact1', val)} className="w-32" />
-                            <EditableTH initialValue={headers.status} onSave={(val) => onHeaderSave('status', val)} className="w-28" />
-                            <EditableTH initialValue={headers.passport} onSave={(val) => onHeaderSave('passport', val)} className="w-24" />
-                            <EditableTH initialValue={headers.labourContract} onSave={(val) => onHeaderSave('labourContract', val)} className="w-24" />
-                            <EditableTH initialValue={headers.payCard} onSave={(val) => onHeaderSave('payCard', val)} className="w-24" />
-                            <th className="w-24 p-0 font-semibold text-center">
-                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('idCopyUrl').allUploaded ? 'text-green-400' : getDocumentStats('idCopyUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="ID Copy">
-                                    <IdCard size={16}/>
+                            <th className="w-10 p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 h-[32px] flex items-center">No</div></th>
+                            <EditableTH initialValue={headers.eNo} onSave={(val) => onHeaderSave('eNo', val)} className="w-16" />
+                            <EditableTH initialValue={headers.gender} onSave={(val) => onHeaderSave('gender', val)} className="w-14" />
+                            <EditableTH initialValue={headers.fullName} onSave={(val) => onHeaderSave('fullName', val)} className="w-44" />
+                            <EditableTH initialValue={headers.nationality} onSave={(val) => onHeaderSave('nationality', val)} className="w-28" />
+                            <EditableTH initialValue={headers.profession} onSave={(val) => onHeaderSave('profession', val)} className="w-36" />
+                            <EditableTH initialValue={headers.qid} onSave={(val) => onHeaderSave('qid', val)} className="w-28" />
+                            <EditableTH initialValue={headers.qidExpiry} onSave={(val) => onHeaderSave('qidExpiry', val)} className="w-24" />
+                            <EditableTH initialValue={headers.contact1} onSave={(val) => onHeaderSave('contact1', val)} className="w-24" />
+                            <EditableTH initialValue={headers.status} onSave={(val) => onHeaderSave('status', val)} className="w-24" />
+                            <EditableTH initialValue={headers.passport} onSave={(val) => onHeaderSave('passport', val)} className="w-20" />
+                            <EditableTH initialValue={headers.labourContract} onSave={(val) => onHeaderSave('labourContract', val)} className="w-20" />
+                            <EditableTH initialValue={headers.payCard} onSave={(val) => onHeaderSave('payCard', val)} className="w-20" />
+                            <th className="w-12 p-0 font-semibold text-center">
+                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
+                                    QID Copy
                                 </div>
                             </th>
-                            <th className="w-24 p-0 font-semibold text-center">
-                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('ppCopyUrl').allUploaded ? 'text-green-400' : getDocumentStats('ppCopyUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="Passport Copy">
-                                    <BookUser size={16}/>
+                            <th className="w-12 p-0 font-semibold text-center">
+                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
+                                    PP Copy
                                 </div>
                             </th>
-                            <th className="w-24 p-0 font-semibold text-center">
-                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('lcCopyUrl').allUploaded ? 'text-green-400' : getDocumentStats('lcCopyUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="Contract Copy">
-                                    <FileText size={16}/>
+                            <th className="w-12 p-0 font-semibold text-center">
+                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
+                                    LC Copy
                                 </div>
                             </th>
-                            <th className="w-32 p-0 font-semibold text-center">
-                                <div className={`dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center ${getDocumentStats('settleDocUrl').allUploaded ? 'text-green-400' : getDocumentStats('settleDocUrl').hasUploaded ? 'text-yellow-400' : 'text-red-400'}`} title="Settlement">
-                                    <HandCoins size={16}/>
+                            <th className="w-12 p-0 font-semibold text-center">
+                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
+                                    Settlement
                                 </div>
                             </th>
-                            <th className="w-20 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Actions</div></th>
+                            <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-1 py-2 rounded-md border dark:border-slate-700/50 text-[10px] h-[32px] flex items-center justify-center">Actions</div></th>
                         </tr>
                     </thead>
                     <tbody>
@@ -8338,7 +9315,7 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                             }
                             
                             const isTicked = tickedEmployees.has(e.id);
-                            const cellClassName = `p-3 rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
+                            const cellClassName = `p-1.5 rounded-md border align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100 dark:border-green-700/50 border-green-200' : 'dark:bg-slate-800 bg-white dark:border-slate-700/50'}`;
                             
                             return (
                                 <tr key={e.id} className={`group/row transition-colors duration-200`}>
@@ -8347,12 +9324,12 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                             type="checkbox"
                                             checked={isTicked}
                                             onChange={() => onToggleTick(e.id)}
-                                            className="h-4 w-4 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
+                                            className="h-3 w-3 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
                                         />
                                     </td>
-                                    <td className={`${cellClassName} truncate`}>{index + 1}</td>
-                                    <td className={`${cellClassName} truncate`}>{e.eNo}</td>
-                                    <td className={`${cellClassName} truncate`}>{e.gender}</td>
+                                    <td className={`${cellClassName} truncate text-[11px]`}>{index + 1}</td>
+                                    <td className={`${cellClassName} truncate text-[11px]`}>{e.eNo}</td>
+                                    <td className={`${cellClassName} truncate text-[11px]`}>{e.gender}</td>
                                     <td className={`${cellClassName} font-semibold truncate`}>
                                         <div className="flex items-center justify-between">
                                             {/* --- ADDED PHOTO/PLACEHOLDER --- */}
@@ -8360,49 +9337,75 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                                 <img 
                                                   src={e.photoURL} 
                                                   alt={e.fullName} 
-                                                  className="w-8 h-8 rounded-full mr-3 object-cover flex-shrink-0" 
+                                                  className="w-6 h-6 rounded-full mr-2 object-cover flex-shrink-0" 
                                                   onError={(e) => { e.target.onerror = null; e.target.src="https://placehold.co/40x40/4A5568/E2E8F0?text=Error"; }}
                                                 />
                                             ) : (
-                                                <div className="w-8 h-8 rounded-full mr-3 bg-gray-600 flex items-center justify-center text-xs font-bold text-gray-300 flex-shrink-0">
-                                                  {e.fullName ? e.fullName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) : <Users size={14} />}
+                                                <div className="w-6 h-6 rounded-full mr-2 bg-gray-600 flex items-center justify-center text-[9px] font-bold text-gray-300 flex-shrink-0">
+                                                  {e.fullName ? e.fullName.split(' ').map(n => n[0]).join('').toUpperCase().substring(0, 2) : <Users size={12} />}
                                                 </div>
                                             )}
                                             {/* --- END OF PHOTO/PLACEHOLDER --- */}
                                             
-                                            <span className="text-left w-full truncate">{e.fullName}</span>
+                                            <span className="text-left w-full truncate text-[11px]" title={e.fullName}>{e.fullName}</span>
                                             <button 
                                                 onClick={() => handleCopy(e.fullName, e.id)} 
-                                                className="p-1 opacity-0 group-hover/row:opacity-100 hover:text-cyan-400 ml-2 flex-shrink-0"
+                                                className="p-0.5 opacity-0 group-hover/row:opacity-100 hover:text-cyan-400 ml-1 flex-shrink-0"
                                                 title={`Copy ${e.fullName}`}
                                             >
-                                                {copiedId === e.id ? <CheckCircle size={14} className="text-green-400" /> : <Copy size={14} />}
+                                                {copiedId === e.id ? <CheckCircle size={12} className="text-green-400" /> : <Copy size={12} />}
                                             </button>
                                         </div>
                                     </td>
-                                    <td className={`${cellClassName} truncate`}>{e.nationality}</td>
-                                    <td className={`${cellClassName} truncate`}>{e.profession}</td>
-                                    <td className={`${cellClassName} truncate ${qidColorClass}`}>{e.qid}</td>
-                                    <td className={`${cellClassName} truncate ${qidColorClass}`}>{formatDate(e.qidExpiry)}</td>
-                                    <td className={`${cellClassName} truncate`}>{e.contact1}</td>
-                                    <td className={`${cellClassName}`}><span className={`px-2 py-1 text-xs font-semibold rounded-full ${getStatusStyle(e.status)}`}>{e.status}</span></td>
-                                    <td className={`${cellClassName} text-center`}><ExpiryStatusBadge date={e.passportExpiry} /></td>
-                                    <td className={`${cellClassName} text-center`}><ExpiryStatusBadge date={e.labourContractExpiry} /></td>
-                                    <td className={`${cellClassName} text-center`}><ExpiryStatusBadge date={e.payCardExpiry} /></td>
+                                    <td className={`${cellClassName} truncate text-[11px]`} title={e.nationality}>{e.nationality}</td>
+                                    <td className={`${cellClassName} truncate text-[11px]`} title={e.profession}>{e.profession}</td>
+                                    <td className={`${cellClassName} truncate ${qidColorClass} text-[11px]`}>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-left w-full truncate" title={e.qid}>{e.qid}</span>
+                                            <button 
+                                                onClick={() => handleCopy(e.qid, `qid_${e.id}`)} 
+                                                className="p-0.5 opacity-0 group-hover/row:opacity-100 hover:text-cyan-400 ml-1 flex-shrink-0"
+                                                title={`Copy ${e.qid}`}
+                                            >
+                                                {copiedId === `qid_${e.id}` ? <CheckCircle size={12} className="text-green-400" /> : <Copy size={12} />}
+                                            </button>
+                                        </div>
+                                    </td>
+                                    <td className={`${cellClassName} truncate ${qidColorClass} text-[11px]`}>{formatDate(e.qidExpiry)}</td>
+                                    <td className={`${cellClassName} truncate text-[11px]`}>{e.contact1}</td>
+                                    <td className={`${cellClassName}`}>
+                                        <div className="flex items-center justify-center h-full">
+                                            <span className={`inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold rounded-full whitespace-nowrap h-5 ${getStatusStyle(e.status)}`}>{e.status}</span>
+                                        </div>
+                                    </td>
+                                    <td className={`${cellClassName}`}>
+                                        <div className="flex items-center justify-center h-full">
+                                            <ExpiryStatusBadge date={e.passportExpiry} />
+                                        </div>
+                                    </td>
+                                    <td className={`${cellClassName}`}>
+                                        <div className="flex items-center justify-center h-full">
+                                            <ExpiryStatusBadge date={e.labourContractExpiry} />
+                                        </div>
+                                    </td>
+                                    <td className={`${cellClassName}`}>
+                                        <div className="flex items-center justify-center h-full">
+                                            <ExpiryStatusBadge date={e.payCardExpiry} />
+                                        </div>
+                                    </td>
                                     {/* Document cells (ID, Passport, Labour Contract, Settlement) */}
                                     <DocumentCell employee={e} type="idCopy" urlField="idCopyUrl" label="ID" isTicked={isTicked} />
                                     <DocumentCell employee={e} type="ppCopy" urlField="ppCopyUrl" label="PP" isTicked={isTicked} />
                                     <DocumentCell employee={e} type="lcCopy" urlField="lcCopyUrl" label="LC" isTicked={isTicked} />
                                     <DocumentCell employee={e} type="settle" urlField="settleDocUrl" label="Settle" isTicked={isTicked} />
                                     <td className={cellClassName}>
-                                        <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-center space-x-1">
+                                        <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-center gap-0.5">
                                             {isPinnedTable ? (
-                                                <button onClick={() => onUnpin(e)} className="p-1.5 hover:text-yellow-400" title="Unpin Employee"><PinOff size={16}/></button>
+                                                <button onClick={() => onUnpin(e)} className="p-0.5 hover:text-yellow-400" title="Unpin Employee"><PinOff size={13}/></button>
                                             ) : (
-                                                <button onClick={() => onPin(e)} className="p-1.5 hover:text-yellow-400" title="Pin Employee"><Pin size={16}/></button>
+                                                <button onClick={() => onPin(e)} className="p-0.5 hover:text-yellow-400" title="Pin Employee"><Pin size={13}/></button>
                                             )}
-                                            <button onClick={() => onEdit(e)} className="p-1.5 hover:text-cyan-400"><Edit size={16}/></button>
-                                            <button onClick={() => onDelete(e)} className="p-1.5 hover:text-red-400"><Trash2 size={16}/></button>
+                                            <button onClick={() => onEdit(e)} className="p-0.5 hover:text-cyan-400"><Edit size={13}/></button>
                                             {(e.status === 'Cancelled' || e.status === 'Changed') && e.payCard && (
                                                 e.payCardCancelled ? (
                                                     <span className="p-1.5 text-green-400" title="Pay Card has been marked as cancelled.">
@@ -9110,6 +10113,11 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                 statusGroups['Others'].push(emp);
             }
         });
+        
+        // Add PAYCARDS section with ALL Active/Vacation employees (auto-sync)
+        statusGroups['PAYCARDS'] = filtered.filter(emp => 
+            (emp.status === 'Active' || emp.status === 'Vacation')
+        );
 
         // NEW: Split each group into pinned and main
         const finalGroups = {};
@@ -9136,7 +10144,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
     };
 
     // Removed New Recruitment from sectionOrder
-    const sectionOrder = ['Case Filed', 'Waiting for Join', 'Cancelled', 'Changed', 'Others'];
+    const sectionOrder = ['Case Filed', 'Waiting for Join', 'Cancelled', 'Changed', 'Others', 'PAYCARDS'];
 
     const statusStyles = {
         'Active': { border: 'dark:border-gray-700 border-gray-300', heading: { bg: 'dark:bg-cyan-800/70 bg-cyan-100', text: 'dark:text-cyan-200 text-cyan-800' } },
@@ -9146,6 +10154,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
         'Changed': { border: 'dark:border-gray-700 border-gray-300', heading: { bg: 'dark:bg-blue-800/70 bg-blue-100', text: 'dark:text-blue-200 text-blue-800' } },
         'Case Filed': { border: 'dark:border-gray-700 border-gray-300', heading: { bg: 'dark:bg-pink-800/70 bg-pink-100', text: 'dark:text-pink-200 text-pink-800' } },
         'Others': { border: 'dark:border-gray-700 border-gray-300', heading: { bg: 'dark:bg-gray-600/70 bg-gray-200', text: 'dark:text-gray-200 text-gray-800' } },
+        'PAYCARDS': { border: 'dark:border-gray-700 border-gray-300', heading: { bg: 'dark:bg-green-800/70 bg-green-100', text: 'dark:text-green-200 text-green-800' } },
     };
     
     const activeAndVacationPinned = [...(groupedAndSortedEmployees['Active']?.pinned || []), ...(groupedAndSortedEmployees['Vacation']?.pinned || [])];
@@ -9238,9 +10247,6 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                             </select>
                                      <Filter size={16} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" />
                         </div>
-                        <button onClick={() => setShowPayCardModal(true)} title="View Pay Cards" className="p-2.5 dark:bg-gray-600 bg-gray-200 text-sm rounded-md dark:hover:bg-gray-500 hover:bg-gray-300 no-print border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
-                            <IdCard size={16}/>
-                        </button>
                         {/* Removed Clear All Employee Data button for CO1/CO2 employees pages */}
                         {tickedEmployees.size > 0 && (
                             <>
@@ -9280,6 +10286,80 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                     )}
                     
                     {(() => {
+                        // Special rendering for PAYCARDS view
+                        if (activeStatusView === 'PAYCARDS') {
+                            const paycardsData = groupedAndSortedEmployees['PAYCARDS'];
+                            const paycardsEmployees = [...(paycardsData?.pinned || []), ...(paycardsData?.main || [])];
+                            
+                            if (paycardsEmployees.length === 0) {
+                                return <div className="p-4 text-center dark:bg-gray-800/50 bg-white/50 rounded-lg border dark:border-gray-700 border-gray-300">No active employees with Pay Card details found.</div>;
+                            }
+                            
+                            return (
+                                <div className="overflow-x-auto">
+                                    <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
+                                        <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
+                                            <tr>
+                                                <th className="p-0 font-semibold text-left w-12"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
+                                                <th className="p-0 font-semibold text-left min-w-[140px]"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Full Name</div></th>
+                                                <th className="p-0 font-semibold text-left w-24"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Nationality</div></th>
+                                                <th className="p-0 font-semibold text-left w-28"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">QID</div></th>
+                                                <th className="p-0 font-semibold text-left w-32"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Paycard No.</div></th>
+                                                <th className="p-0 font-semibold text-left w-20"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">PIN</div></th>
+                                                <th className="p-0 font-semibold text-left w-28"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Expiry</div></th>
+                                                <th className="p-0 font-semibold text-left w-28"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Status</div></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {paycardsEmployees.map((e, index) => {
+                                                const cellClassName = `p-2 dark:bg-gray-800/50 bg-gray-50`;
+                                                // Auto-determine status based on logic
+                                                let displayStatus = e.payCardStatus || 'Apply for New';
+                                                if (e.payCard && e.payCard.trim() !== '') {
+                                                    // If card number exists, check expiry
+                                                    if (e.payCardExpiry && isDateExpired(e.payCardExpiry)) {
+                                                        displayStatus = 'Expired';
+                                                    } else if (displayStatus !== 'Own Cards') {
+                                                        displayStatus = 'Active';
+                                                    }
+                                                }
+                                                
+                                                const statusColors = {
+                                                    'Active': 'bg-green-500/20 text-green-400',
+                                                    'Expired': 'bg-red-500/20 text-red-400',
+                                                    'Own Cards': 'bg-blue-500/20 text-blue-400',
+                                                    'Apply for New': 'bg-yellow-500/20 text-yellow-400',
+                                                    'Applied': 'bg-orange-500/20 text-orange-400',
+                                                };
+                                                
+                                                return (
+                                                    <tr key={e.id} className="group/row">
+                                                        <td className={`${cellClassName} rounded-l-md text-center`}>{index + 1}</td>
+                                                        <td className={`${cellClassName} font-semibold whitespace-nowrap overflow-hidden text-ellipsis max-w-[140px]`} title={e.fullName}>{e.fullName}</td>
+                                                        <td className={`${cellClassName} text-xs`}>{e.nationality}</td>
+                                                        <td className={`${cellClassName} font-mono text-xs`}>{e.qid}</td>
+                                                        <td className={`${cellClassName} font-mono text-blue-400 text-xs`}>{e.payCard || '-'}</td>
+                                                        <td className={`${cellClassName} font-mono text-xs`}>{e.payCardPin || '-'}</td>
+                                                        <td className={`${cellClassName} whitespace-nowrap`}>
+                                                            <div className="flex items-center gap-1">
+                                                                <span className="text-xs">{formatDate(e.payCardExpiry)}</span>
+                                                                <DocumentStatusBadge date={e.payCardExpiry} />
+                                                            </div>
+                                                        </td>
+                                                        <td className={`${cellClassName} rounded-r-md`}>
+                                                            <span className={`inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold rounded-full whitespace-nowrap h-5 ${statusColors[displayStatus] || 'bg-gray-500/20 text-gray-400'}`}>
+                                                                {displayStatus}
+                                                            </span>
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            );
+                        }
+                        
                         const currentViewData = activeStatusView === 'Active' 
                             ? { pinned: activeAndVacationPinned, main: activeAndVacationMain } 
                             : groupedAndSortedEmployees[activeStatusView];
@@ -9628,10 +10708,19 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
     const [newEntry, setNewEntry] = useState({ date: formatDate(new Date()), particulars: '', debit: '', credit: '', mainCategory: '', subCategory: '', customSubCategory: '', partnerName: '', vehicleNumber: '' });
     const [editingEntry, setEditingEntry] = useState(null);
     const [showNewEntryModal, setShowNewEntryModal] = useState(false); // New state for the modal
-    const [view, setView] = useState('monthly');
+    const [view, setView] = useState(() => {
+        const saved = localStorage.getItem('dashboard_ledger_view');
+        return saved || 'monthly';
+    });
     const [activeLedgerView, setActiveLedgerView] = useState('entries');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [selectedYear, setSelectedYear] = useState(() => {
+        const saved = localStorage.getItem('dashboard_ledger_year');
+        return saved ? Number(saved) : new Date().getFullYear();
+    });
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const saved = localStorage.getItem('dashboard_ledger_month');
+        return saved ? Number(saved) : new Date().getMonth();
+    });
     const [searchTerm, setSearchTerm] = useState('');
     const [mainCategoryFilter, setMainCategoryFilter] = useState('');
     const [subCategoryFilter, setSubCategoryFilter] = useState('');
@@ -9655,6 +10744,19 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
 
 
     const pinnedItemsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/ledgerFavorites`), [userId, appId]);
+
+    // Persist time filter selections
+    useEffect(() => {
+        localStorage.setItem('dashboard_ledger_view', view);
+    }, [view]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_ledger_year', selectedYear.toString());
+    }, [selectedYear]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_ledger_month', selectedMonth.toString());
+    }, [selectedMonth]);
 
     const updateTickedInFirestore = useCallback(async (newSet) => {
         if (!tickedEntriesRef) return;
@@ -10778,9 +11880,6 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                                     </button>
                                 </>
                             )}
-                            <button onClick={handleClearLedgerData} disabled={isClearingData || isExportingExcel} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                                {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
-                            </button>
                             <div className="relative">
                                <input
                                     type="text"
@@ -10987,9 +12086,18 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
     const [newEntry, setNewEntry] = useState({ date: formatDate(new Date()), name: '', nationality: '', description: '', debit: '', credit: '', dueDate: '', customDescription: '', yearRange: '' });
     const [editingEntry, setEditingEntry] = useState(null);
     const [showAddModal, setShowAddModal] = useState(false); // Add this state
-    const [view, setView] = useState('all'); // Default view changed to 'all'
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [view, setView] = useState(() => {
+        const saved = localStorage.getItem('dashboard_debtsCredits_view');
+        return saved || 'all';
+    }); // Default view changed to 'all'
+    const [selectedYear, setSelectedYear] = useState(() => {
+        const saved = localStorage.getItem('dashboard_debtsCredits_year');
+        return saved ? Number(saved) : new Date().getFullYear();
+    });
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const saved = localStorage.getItem('dashboard_debtsCredits_month');
+        return saved ? Number(saved) : new Date().getMonth();
+    });
     const [searchTerm, setSearchTerm] = useState('');
     const [mainCategoryFilter, setMainCategoryFilter] = useState('');
     const [subCategoryFilter, setSubCategoryFilter] = useState('');
@@ -11037,6 +12145,19 @@ const DebtsAndCreditsPage = ({ userId, appId, currency, setConfirmAction }) => {
     const badDebtsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${badDebtsCollectionPath}`), [userId, appId, badDebtsCollectionPath]);
 
     const tickedItemsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/debtCreditSettings/tickedItems`), [userId, appId]);
+
+    // Persist time filter selections
+    useEffect(() => {
+        localStorage.setItem('dashboard_debtsCredits_view', view);
+    }, [view]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_debtsCredits_year', selectedYear.toString());
+    }, [selectedYear]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_debtsCredits_month', selectedMonth.toString());
+    }, [selectedMonth]);
 
     const updateTickedInFirestore = useCallback(async (newSet) => {
         if (!tickedItemsRef) return;
@@ -12356,13 +13477,35 @@ const ConfirmationModal = ({ details, onConfirm, onCancel }) => {
 
 const FinancialReportsPage = ({ userId, appId, currency, collectionPath }) => {
     const [ledger, setLedger] = useState([]);
-    const [view, setView] = useState('monthly');
-    const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
-    const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
+    const [view, setView] = useState(() => {
+        const saved = localStorage.getItem('dashboard_financialReports_view');
+        return saved || 'monthly';
+    });
+    const [selectedYear, setSelectedYear] = useState(() => {
+        const saved = localStorage.getItem('dashboard_financialReports_year');
+        return saved ? Number(saved) : new Date().getFullYear();
+    });
+    const [selectedMonth, setSelectedMonth] = useState(() => {
+        const saved = localStorage.getItem('dashboard_financialReports_month');
+        return saved ? Number(saved) : new Date().getMonth();
+    });
     const [activeReport, setActiveReport] = useState('pnl');
     const [isExporting, setIsExporting] = useState(false);
     const [isImporting, setIsImporting] = useState(false);
     const importFileInputRef = useRef(null);
+
+    // Persist time filter selections
+    useEffect(() => {
+        localStorage.setItem('dashboard_financialReports_view', view);
+    }, [view]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_financialReports_year', selectedYear.toString());
+    }, [selectedYear]);
+
+    useEffect(() => {
+        localStorage.setItem('dashboard_financialReports_month', selectedMonth.toString());
+    }, [selectedMonth]);
 
     useEffect(() => { if(!userId || appId === 'default-app-id') return; const q = collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`); const unsub = onSnapshot(q, (snap) => setLedger(snap.docs.map(d => ({id: d.id, ...d.data()})))); return unsub; }, [userId, appId, collectionPath]);
 
@@ -14321,20 +15464,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                             className="hidden"
                             accept=".xlsx,.xls"
                         />
-                    </div>
-                </div>
-
-                {/* Separator */}
-                <div className="border-t dark:border-gray-700 border-gray-300 my-6"></div>
-
-                {/* Other Actions */}
-                <div>
-                    <h3 className="text-lg font-semibold mb-2 text-orange-400">Other Actions</h3>
-                    <div className="flex items-center gap-4 flex-wrap">
-                        <button onClick={handleClearAllData} disabled={isClearingData || isImporting || isExporting || isImportingExcel || isExportingExcel} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                            {isClearingData ? <Loader2 className="animate-spin" /> : <AlertTriangle size={18}/>}
-                            <span>{isClearingData ? 'Clearing Data...' : 'Clear All Data'}</span>
-                        </button>
                     </div>
                 </div>
             </section>

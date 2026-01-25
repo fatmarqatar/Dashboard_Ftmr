@@ -5,3 +5,74 @@
 html, body, #root {
   height: 100%;
 }
+
+/* PDF Export and Print Styles */
+@media print {
+  /* Hide elements that shouldn't be printed */
+  .no-print {
+    display: none !important;
+  }
+  
+  /* Ensure proper page breaks */
+  .page-break {
+    page-break-after: always;
+    break-after: page;
+  }
+  
+  /* Prevent page breaks inside elements */
+  table, tr, td, th {
+    page-break-inside: avoid;
+  }
+  
+  /* Optimize for print layout */
+  body {
+    margin: 0;
+    padding: 0;
+    background: white !important;
+  }
+  
+  /* Ensure colors and backgrounds print correctly */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+  
+  /* Remove box shadows for cleaner print */
+  * {
+    box-shadow: none !important;
+    text-shadow: none !important;
+  }
+  
+  /* Optimize typography for print */
+  h1, h2, h3, h4, h5, h6 {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  
+  /* Ensure tables fit properly */
+  table {
+    width: 100% !important;
+    border-collapse: collapse !important;
+  }
+}
+
+/* Styles for better PDF canvas capture */
+.pdf-export-optimized {
+  overflow: visible !important;
+  min-height: 100vh;
+}
+
+/* Ensure form elements render properly in PDF */
+input[readonly],
+textarea[readonly] {
+  background: transparent !important;
+  border: 1px solid currentColor !important;
+  opacity: 1 !important;
+}
+
+/* Better rendering for charts in PDF */
+canvas {
+  max-width: 100% !important;
+  height: auto !important;
+}

@@ -7,7 +7,7 @@ import { Undo, Download, Upload, Edit, Trash2, PlusCircle, X, FileText, Briefcas
 import { Chart as ChartJS, ArcElement, Tooltip, Legend, CategoryScale, LinearScale, PointElement, LineElement, Title, BarElement, Filler } from 'chart.js';
 import { Pie, Bar, Line, Doughnut } from 'react-chartjs-2'; // Import react-chartjs-2 components after registration
 
-import { doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc, writeBatch, getDocs, arrayUnion, arrayRemove, query, where, or, orderBy, limit } from 'firebase/firestore';
+import { doc, setDoc, getDoc, collection, onSnapshot, addDoc, deleteDoc, updateDoc, writeBatch, getDocs, arrayUnion, arrayRemove, query, where, or, orderBy, limit, serverTimestamp } from 'firebase/firestore';
 import { signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from 'firebase/auth';
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { app, db, auth, storage } from './firebase.js';
@@ -1108,9 +1108,18 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
 
     const handlePinVehicle = async (vehicle) => {
         if (!pinnedSettingsRef) return;
-        const newPinnedIds = [...pinnedVehicles, vehicle.id];
-        setPinnedVehicles(newPinnedIds);
-        await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+        
+        setConfirmAction({
+            title: 'Pin Vehicle',
+            message: `Are you sure you want to pin vehicle "${vehicle.vehicleNo}"? It will appear at the top of the list.`,
+            confirmText: 'Pin',
+            type: 'confirm',
+            action: async () => {
+                const newPinnedIds = [...pinnedVehicles, vehicle.id];
+                setPinnedVehicles(newPinnedIds);
+                await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+            }
+        });
     };
 
     const handleUnpinVehicle = async (vehicle) => {
@@ -1194,6 +1203,7 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                 const initial = {};
                 vehicleFormFields.forEach(field => {
                     if (field.type === 'date' && initialData[field.name]) {
+                        // Format date for display
                         initial[field.name] = formatDate(initialData[field.name]);
                     } else {
                         initial[field.name] = initialData[field.name] || '';
@@ -1201,8 +1211,9 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                 });
                 setFormData(initial);
             } else if (isOpen) {
+                // For new vehicles, set empty strings for dates
                 setFormData(vehicleFormFields.reduce((acc, field) => {
-                    acc[field.name] = field.defaultValue || '';
+                    acc[field.name] = field.type === 'date' ? '' : (field.defaultValue || '');
                     return acc;
                 }, {}));
             }
@@ -1225,7 +1236,9 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
             const dataToSave = { ...formData };
             vehicleFormFields.forEach(field => {
                 if (field.type === 'date' && dataToSave[field.name]) {
-                    dataToSave[field.name] = parseDateForFirestore(dataToSave[field.name]);
+                    // Convert dd/mm/yyyy to Firestore date
+                    const parsed = parseDateForFirestore(dataToSave[field.name]);
+                    dataToSave[field.name] = parsed;
                 }
             });
             onSave(dataToSave);
@@ -1255,7 +1268,10 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                                             {field.options.map(opt => <option key={opt} value={opt}>{opt}</option>)}
                                         </select>
                                     ) : field.type === 'date' ? (
-                                        <input type="date" name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" />
+                                        <DateInput 
+                                            value={formData[field.name] || ''} 
+                                            onChange={val => setFormData(prev => ({ ...prev, [field.name]: val }))} 
+                                        />
                                     ) : (
                                         <input type="text" name={field.name} value={formData[field.name] || ''} onChange={handleChange} className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md border dark:border-gray-600 border-gray-300" />
                                     )}
@@ -1601,6 +1617,22 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                             const isTicked = tickedVehicles.has(v.id);
                             const cellClassName = `p-2 align-middle ${isTicked ? 'dark:bg-green-800/40 bg-green-100' : 'dark:bg-gray-800/50 bg-gray-50'}`;
 
+                            // Determine expiry date color
+                            let expiryDateColor = '';
+                            if (v.expiry) {
+                                const expiryDate = v.expiry.toDate ? v.expiry.toDate() : new Date(v.expiry);
+                                const today = new Date();
+                                today.setHours(0, 0, 0, 0);
+                                const thirtyDaysFromNow = new Date();
+                                thirtyDaysFromNow.setDate(today.getDate() + 30);
+                                
+                                if (expiryDate < today) {
+                                    expiryDateColor = 'text-red-400 font-bold';
+                                } else if (expiryDate <= thirtyDaysFromNow) {
+                                    expiryDateColor = 'text-orange-400 font-bold';
+                                }
+                            }
+
                             return (
                                 <tr key={v.id} className="group/row">
                                     <td className={`${cellClassName} rounded-l-md text-center`}>
@@ -1618,7 +1650,7 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                                     <td className={cellClassName}>{v.owner}</td>
                                     {showPurchaseDate && <td className={cellClassName}>{formatDate(v.purchaseDate)}</td>}
                                     {showSoldDate && <td className={cellClassName}>{formatDate(v.soldDate)}</td>}
-                                    <td className={cellClassName}>{formatDate(v.expiry)}</td>
+                                    <td className={`${cellClassName} ${expiryDateColor}`}>{formatDate(v.expiry)}</td>
                                     <td className={cellClassName}><ExpiryBadge date={v.expiry} /></td>
                                     <DocumentCell vehicle={v} type="isthimara" urlField="isthimaraUrl" label="Isthimara" />
                                     <DocumentCell vehicle={v} type="photo" urlField="photoUrl" label="Photo" />
@@ -1656,12 +1688,6 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                             className={`py-2 px-4 text-sm font-semibold transition-colors ${activeVehicleView === 'active' ? 'border-b-2 border-cyan-400 text-cyan-400' : 'text-gray-400 hover:text-white'}`}
                         >
                             Active Vehicles ({activeVehicles.length})
-                        </button>
-                        <button 
-                            onClick={() => setActiveVehicleView('soon')}
-                            className={`py-2 px-4 text-sm font-semibold transition-colors ${activeVehicleView === 'soon' ? 'border-b-2 border-orange-400 text-orange-400' : 'text-gray-400 hover:text-white'}`}
-                        >
-                            Soon ({soonVehicles.length})
                         </button>
                         <button 
                             onClick={() => setActiveVehicleView('sold')}
@@ -1719,7 +1745,6 @@ const VehiclesPage = ({ userId, appId, pageTitle, collectionPath, setConfirmActi
                         )}
                     </>
                 )}
-                {activeVehicleView === 'soon' && <VehicleTable vehicleList={soonVehicles} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(soonVehicles)} showPurchaseDate={true} />}
                 {activeVehicleView === 'sold' && <VehicleTable vehicleList={soldVehicles} tickedVehicles={tickedVehicles} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(soldVehicles)} showPurchaseDate={true} showSoldDate={true} />}
             </section>
             
@@ -3187,8 +3212,9 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [noteContent, setNoteContent] = useState('');
     const [notes, setNotes] = useState([]);
     const notesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/visa_notes`), [userId, appId]);
-    const [editingNote, setEditingNote] = useState(null);
-    const [showNoteModal, setShowNoteModal] = useState(false);
+    const [selectedNote, setSelectedNote] = useState(null);
+    const [isEditingNote, setIsEditingNote] = useState(false);
+    const [editNoteText, setEditNoteText] = useState('');
 
     const tickedItemsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/visaSettings/tickedItems`), [userId, appId]);
 
@@ -3209,12 +3235,30 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     // Load notes
     useEffect(() => {
         if (!notesRef) return;
-        const unsub = onSnapshot(notesRef, (snapshot) => {
-            const notesList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setNotes(notesList.sort((a, b) => (b.createdAt?.toDate?.() || new Date(0)) - (a.createdAt?.toDate?.() || new Date(0))));
+        const q = query(notesRef, orderBy('createdAt', 'desc'));
+        const unsub = onSnapshot(q, (snapshot) => {
+            setNotes(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
         });
         return () => unsub();
     }, [notesRef]);
+
+    // Auto-select first note
+    useEffect(() => {
+        if (!selectedNote && notes.length > 0) {
+            setSelectedNote(notes[0]);
+        }
+    }, [notes, selectedNote]);
+
+    // Update edit text when selected note changes
+    useEffect(() => {
+        if (selectedNote) {
+            setEditNoteText(selectedNote.text || selectedNote.content || '');
+            setIsEditingNote(false);
+        } else {
+            setEditNoteText('');
+            setIsEditingNote(false);
+        }
+    }, [selectedNote]);
 
     const updateTickedInFirestore = useCallback(async (dataToMerge) => {
         if (!tickedItemsRef) return;
@@ -3303,10 +3347,18 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     };
 
     const handlePinVisa = async (visa) => {
-        if (!pinnedSettingsRef) return;
-        const newPinnedIds = [...pinnedVisas, visa.id];
-        setPinnedVisas(newPinnedIds);
-        await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+        setConfirmAction({
+            title: 'Pin Recruitment Entry',
+            message: 'Do you want to pin this recruitment entry to the top?',
+            confirmText: 'Pin',
+            type: 'save',
+            action: async () => {
+                if (!pinnedSettingsRef) return;
+                const newPinnedIds = [...pinnedVisas, visa.id];
+                setPinnedVisas(newPinnedIds);
+                await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
+            }
+        });
     };
 
     const handleUnpinVisa = async (visa) => {
@@ -3316,43 +3368,30 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         await setDoc(pinnedSettingsRef, { pinnedIds: newPinnedIds }, { merge: true });
     };
 
-    const handleSaveNote = async () => {
-        if (!noteContent.trim()) return;
-        try {
-            if (editingNote) {
-                await updateDoc(doc(notesRef, editingNote.id), {
-                    content: noteContent,
-                    updatedAt: serverTimestamp()
-                });
-                setEditingNote(null);
-            } else {
-                await addDoc(notesRef, {
-                    content: noteContent,
-                    createdAt: serverTimestamp(),
-                    updatedAt: serverTimestamp()
-                });
-            }
-            setNoteContent('');
-            setShowNoteModal(false);
-        } catch (error) {
-            console.error("Error saving note:", error);
-        }
+    const handleAddNote = async () => {
+        if (noteContent.trim() === '') return;
+        const newNoteData = {
+            text: noteContent,
+            createdAt: new Date(),
+        };
+        const docRef = await addDoc(notesRef, newNoteData);
+        setNoteContent('');
+        // Automatically select the new note
+        setSelectedNote({ id: docRef.id, ...newNoteData });
     };
 
-    const handleDeleteNote = async (noteId) => {
+    const handleUpdateNote = async (noteId, text) => {
+        const noteRef = doc(db, `artifacts/${appId}/users/${userId}/visa_notes`, noteId);
+        await updateDoc(noteRef, { text });
+    };
+
+    const handleDeleteNoteRequest = (noteId) => {
         setConfirmAction({
-            show: true,
             title: 'Delete Note',
             message: 'Are you sure you want to delete this note?',
-            onConfirm: async () => {
-                try {
-                    await deleteDoc(doc(notesRef, noteId));
-                } catch (error) {
-                    console.error("Error deleting note:", error);
-                }
-                setConfirmAction({ show: false });
-            },
-            onCancel: () => setConfirmAction({ show: false })
+            confirmText: 'Delete',
+            type: 'delete',
+            action: () => deleteDoc(doc(db, `artifacts/${appId}/users/${userId}/visa_notes`, noteId)),
         });
     };
 
@@ -3861,7 +3900,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     }, [entries, view, selectedYear, selectedMonth, searchTerm]);
 
     const { newVisas, appliedVisas, underProcessVisas, validForUseVisas, rpIssuedVisas, otherVisas } = useMemo(() => {
-        return filteredEntries.reduce((acc, v) => {
+        const grouped = filteredEntries.reduce((acc, v) => {
             switch (v.status) {
                 case 'New Visa':
                     acc.newVisas.push(v);
@@ -3884,7 +3923,22 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
             }
             return acc;
         }, { newVisas: [], appliedVisas: [], underProcessVisas: [], validForUseVisas: [], rpIssuedVisas: [], otherVisas: [] });
-    }, [filteredEntries]);
+        
+        // Split each group into pinned and main
+        const splitGroup = (visas) => ({
+            pinned: visas.filter(v => pinnedVisas.includes(v.id)),
+            main: visas.filter(v => !pinnedVisas.includes(v.id))
+        });
+        
+        return {
+            newVisas: splitGroup(grouped.newVisas),
+            appliedVisas: splitGroup(grouped.appliedVisas),
+            underProcessVisas: splitGroup(grouped.underProcessVisas),
+            validForUseVisas: splitGroup(grouped.validForUseVisas),
+            rpIssuedVisas: splitGroup(grouped.rpIssuedVisas),
+            otherVisas: splitGroup(grouped.otherVisas)
+        };
+    }, [filteredEntries, pinnedVisas]);
 
     const handleSave = async (data) => {
         const pnlStatuses = ['Under Process', 'Valid for Use', 'RP Issued'];
@@ -4119,7 +4173,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
         </div>
     );
 
-    const VisaTable = ({ visaList, tickedEntries, onToggleTick, onToggleAllTicks, pinnedVisas, onPinVisa, onUnpinVisa, showStatus }) => {
+    const VisaTable = ({ visaList, tickedEntries, onToggleTick, onToggleAllTicks, pinnedVisas, onPinVisa, onUnpinVisa, showStatus, isPinnedTable = false }) => {
         const allAreTicked = visaList.length > 0 && visaList.every(v => tickedEntries.has(v.id));
         
         return (
@@ -4196,7 +4250,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                                 <td className="p-1 text-left text-[10px] break-words whitespace-normal leading-tight max-w-[96px]">{v.notes}</td>
                                 <td className="p-1 text-center">
                                     <div className="opacity-0 group-hover/row:opacity-100 flex items-center justify-center space-x-0.5">
-                                        {pinnedVisas?.includes(v.id) ? (
+                                        {isPinnedTable ? (
                                             <button onClick={() => onUnpinVisa?.(v)} className="p-1 hover:text-yellow-400" title="Unpin Visa"><PinOff size={12}/></button>
                                         ) : (
                                             <button onClick={() => onPinVisa?.(v)} className="p-1 hover:text-yellow-400" title="Pin Visa"><Pin size={12}/></button>
@@ -4222,46 +4276,40 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                 <div className="flex justify-between items-center mt-6 pb-4 border-b-2 dark:border-gray-700 mb-6 flex-wrap gap-4">
                     <nav className="flex items-center flex-wrap gap-2">
                         <button 
-                            onClick={() => setActiveView('all')}
-                            className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'all' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
-                        >
-                            All Visas ({entries.length})
-                        </button>
-                        <button 
                             onClick={() => setActiveView('new')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'new' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
-                            New Visas ({newVisas.length})
+                            New Visas ({newVisas.pinned.length + newVisas.main.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('applied')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'applied' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
-                            Applied ({appliedVisas.length})
+                            Applied ({appliedVisas.pinned.length + appliedVisas.main.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('processing')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'processing' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
-                            Under Process ({underProcessVisas.length})
+                            Under Process ({underProcessVisas.pinned.length + underProcessVisas.main.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('validforuse')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'validforuse' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
-                            Valid for Use ({validForUseVisas.length})
+                            Valid for Use ({validForUseVisas.pinned.length + validForUseVisas.main.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('issued')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'issued' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
-                            RP Issued ({rpIssuedVisas.length})
+                            RP Issued ({rpIssuedVisas.pinned.length + rpIssuedVisas.main.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('others')}
                             className={`py-2 px-4 text-sm font-semibold rounded-full transition-colors ${activeView === 'others' ? 'bg-cyan-600 text-white' : 'dark:bg-gray-700 bg-gray-200 dark:hover:bg-gray-600 hover:bg-gray-300 dark:text-gray-300 text-gray-600'}`}
                         >
-                            Others ({otherVisas.length})
+                            Others ({otherVisas.pinned.length + otherVisas.main.length})
                         </button>
                         <button 
                             onClick={() => setActiveView('pnl')}
@@ -4369,9 +4417,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                                 <PlusCircle size={20}/>
                             </button>
                         ) : activeView === 'notes' ? (
-                            <button onClick={() => { setEditingNote(null); setNoteContent(''); setShowNoteModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Note">
-                                <PlusCircle size={20}/>
-                            </button>
+                            null
                         ) : (
                             <button onClick={() => { setEditingEntry(null); setShowModal(true); }} className="p-2 bg-cyan-500 rounded-full hover:bg-cyan-600 transition-colors" title="Add Visa Entry">
                                 <PlusCircle size={20}/>
@@ -4380,79 +4426,165 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                     </div>
                 </div>
                 
-                
-                {activeView === 'all' && <VisaTable visaList={filteredEntries} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(filteredEntries)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} showStatus={true} />}
-                {activeView === 'new' && <VisaTable visaList={newVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(newVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
-                {activeView === 'applied' && <VisaTable visaList={appliedVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(appliedVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
-                {activeView === 'processing' && <VisaTable visaList={underProcessVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(underProcessVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
-                {activeView === 'validforuse' && <VisaTable visaList={validForUseVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(validForUseVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
-                {activeView === 'issued' && <VisaTable visaList={rpIssuedVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(rpIssuedVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
-                {activeView === 'others' && <VisaTable visaList={otherVisas} tickedEntries={tickedEntries} onToggleTick={handleToggleTick} onToggleAllTicks={() => handleToggleAllTicks(otherVisas)} pinnedVisas={pinnedVisas} onPinVisa={handlePinVisa} onUnpinVisa={handleUnpinVisa} />}
-                {activeView === 'pnl' && <VisaPnlTable pnlList={filteredPnlEntries} totals={pnlTotals} tickedEntries={tickedPnlEntries} onToggleTick={handleTogglePnlTick} onToggleAllTicks={() => handleToggleAllPnlTicks(filteredPnlEntries)} />}
-                {activeView === 'notes' && (
-                    <div className="space-y-4">
-                        {notes.length === 0 ? (
-                            <div className="text-center py-12 text-gray-500 dark:text-gray-400">
-                                <BookOpen size={32} className="mx-auto mb-3 opacity-50" />
-                                <p>No notes yet. Add one to get started!</p>
-                            </div>
-                        ) : (
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                {notes.map(note => (
-                                    <div key={note.id} className="p-4 border rounded-lg dark:bg-gray-800 dark:border-gray-700 bg-gray-50 border-gray-200">
-                                        <p className="text-gray-700 dark:text-gray-300 whitespace-pre-wrap text-sm">{note.content}</p>
-                                        <div className="flex justify-between items-center mt-3 text-xs text-gray-500 dark:text-gray-400">
-                                            <span>{note.createdAt?.toDate?.()?.toLocaleDateString() || 'N/A'}</span>
-                                            <div className="flex gap-2">
-                                                <button onClick={() => handleEditNote(note)} className="hover:text-blue-500 transition-colors">
-                                                    <Edit2 size={14} />
-                                                </button>
-                                                <button onClick={() => handleDeleteNote(note.id)} className="hover:text-red-500 transition-colors">
-                                                    <Trash2 size={14} />
-                                                </button>
-                                            </div>
-                                        </div>
+                {/* Helper function to render pinned and main tables */}
+                {(() => {
+                    const renderSplitView = (viewData, showStatus = false) => {
+                        const hasPinned = viewData.pinned.length > 0;
+                        const hasMain = viewData.main.length > 0;
+                        const allItems = [...viewData.pinned, ...viewData.main];
+
+                        if (!hasPinned && !hasMain) {
+                            return <div className="text-center py-8 text-gray-500">No entries in this section.</div>;
+                        }
+
+                        return (
+                            <>
+                                {hasPinned && (
+                                    <div className="mb-6">
+                                        <h3 className="text-lg font-bold mb-2 flex items-center"><Pin size={18} className="mr-2 text-yellow-400" /> Pinned ({viewData.pinned.length})</h3>
+                                        <VisaTable
+                                            visaList={viewData.pinned}
+                                            tickedEntries={tickedEntries}
+                                            onToggleTick={handleToggleTick}
+                                            onToggleAllTicks={() => handleToggleAllTicks(viewData.pinned)}
+                                            pinnedVisas={pinnedVisas}
+                                            onPinVisa={handlePinVisa}
+                                            onUnpinVisa={handleUnpinVisa}
+                                            showStatus={showStatus}
+                                            isPinnedTable={true}
+                                        />
                                     </div>
-                                ))}
+                                )}
+                                {hasMain && (
+                                    <div className={hasPinned ? 'mt-8 pt-8 border-t-2 dark:border-gray-700 border-gray-300' : ''}>
+                                        {hasPinned && <h3 className="text-lg font-bold mb-2">Main List ({viewData.main.length})</h3>}
+                                        <VisaTable
+                                            visaList={viewData.main}
+                                            tickedEntries={tickedEntries}
+                                            onToggleTick={handleToggleTick}
+                                            onToggleAllTicks={() => handleToggleAllTicks(viewData.main)}
+                                            pinnedVisas={pinnedVisas}
+                                            onPinVisa={handlePinVisa}
+                                            onUnpinVisa={handleUnpinVisa}
+                                            showStatus={showStatus}
+                                            isPinnedTable={false}
+                                        />
+                                    </div>
+                                )}
+                            </>
+                        );
+                    };
+
+                    // Render based on active view
+                    if (activeView === 'all') {
+                        const allViewData = {
+                            pinned: filteredEntries.filter(v => pinnedVisas.includes(v.id)),
+                            main: filteredEntries.filter(v => !pinnedVisas.includes(v.id))
+                        };
+                        return renderSplitView(allViewData, true);
+                    } else if (activeView === 'new') {
+                        return renderSplitView(newVisas);
+                    } else if (activeView === 'applied') {
+                        return renderSplitView(appliedVisas);
+                    } else if (activeView === 'processing') {
+                        return renderSplitView(underProcessVisas);
+                    } else if (activeView === 'validforuse') {
+                        return renderSplitView(validForUseVisas);
+                    } else if (activeView === 'issued') {
+                        return renderSplitView(rpIssuedVisas);
+                    } else if (activeView === 'others') {
+                        return renderSplitView(otherVisas);
+                    } else if (activeView === 'pnl') {
+                        return <VisaPnlTable pnlList={filteredPnlEntries} totals={pnlTotals} tickedEntries={tickedPnlEntries} onToggleTick={handleTogglePnlTick} onToggleAllTicks={() => handleToggleAllPnlTicks(filteredPnlEntries)} />;
+                    } else if (activeView === 'notes') {
+                        return (
+                    <section className="dark:bg-gray-800 bg-white p-6 rounded-lg border-l-4 border-sky-500">
+                        <div className="flex justify-between items-center mb-4">
+                            <h2 className="text-2xl font-bold">Notes</h2>
+                        </div>
+                        <div className="flex flex-col md:flex-row gap-6">
+                            
+                            {/* Left Column: Add Note & Note List */}
+                            <div className="w-full md:w-1/3 lg:w-1/4 flex-shrink-0">
+                                {/* Add Note Form */}
+                                <div className="mb-6">
+                                    <textarea
+                                        value={noteContent}
+                                        onChange={(e) => setNoteContent(e.target.value)}
+                                        placeholder="Add a new note..."
+                                        rows="3"
+                                        className="w-full p-2 dark:bg-gray-700 bg-gray-200 rounded-md dark:text-white text-gray-800 border dark:border-gray-600 border-gray-300"
+                                    />
+                                    <button onClick={handleAddNote} className="w-full mt-2 px-4 py-2 bg-cyan-500 rounded-md text-white hover:bg-cyan-600">
+                                        Add Note
+                                    </button>
+                                </div>
+                                
+                                {/* Note List */}
+                                <div className="space-y-2 max-h-[60vh] overflow-y-auto">
+                                    {notes.length === 0 && (
+                                        <p className="text-gray-500 text-sm text-center p-4">No notes yet.</p>
+                                    )}
+                                    {notes.map(note => (
+                                        <button
+                                            key={note.id}
+                                            onClick={() => setSelectedNote(note)}
+                                            className={`w-full text-left p-3 rounded-lg transition-colors ${selectedNote?.id === note.id ? 'bg-cyan-600 text-white shadow-lg' : 'dark:bg-gray-700/50 bg-gray-100/50 dark:hover:bg-gray-700 hover:bg-gray-200'}`}
+                                        >
+                                            <p className="font-semibold truncate">{(note.text || note.content || '').split('\n')[0] || 'Untitled Note'}</p>
+                                            <p className={`text-xs ${selectedNote?.id === note.id ? 'text-cyan-100' : 'text-gray-500'}`}>{formatDate(note.createdAt)}</p>
+                                        </button>
+                                    ))}
+                                </div>
                             </div>
-                        )}
-                    </div>
-                )}
+
+                            {/* Right Column: Note Content */}
+                            <div className="flex-grow">
+                                {selectedNote ? (
+                                    <div className="dark:bg-gray-700/50 bg-gray-100/50 p-4 rounded-lg min-h-[50vh]">
+                                        {isEditingNote ? (
+                                            <div className="flex flex-col gap-2 h-full">
+                                                <textarea
+                                                    value={editNoteText}
+                                                    onChange={(e) => setEditNoteText(e.target.value)}
+                                                    className="w-full flex-grow p-2 dark:bg-gray-700 bg-gray-200 rounded-md resize-none min-h-[200px] dark:text-white text-gray-800"
+                                                />
+                                                <div className="flex items-center justify-end space-x-2">
+                                                    <button onClick={() => setIsEditingNote(false)} className="px-4 py-2 bg-gray-600 text-sm rounded-md hover:bg-gray-500">Cancel</button>
+                                                    <button onClick={() => { handleUpdateNote(selectedNote.id, editNoteText); setIsEditingNote(false); }} className="px-4 py-2 bg-cyan-500 text-sm rounded-md hover:bg-cyan-600">Save</button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div>
+                                                <div className="flex justify-between items-center mb-2">
+                                                    <p className="text-sm text-gray-400">{formatDate(selectedNote.createdAt)}</p>
+                                                    <div className="flex items-center space-x-2">
+                                                        <button onClick={() => setIsEditingNote(true)} className="p-2 hover:text-cyan-400" title="Edit Note"><Edit size={16} /></button>
+                                                        <button onClick={() => {handleDeleteNoteRequest(selectedNote.id); setSelectedNote(null);}} className="p-2 hover:text-red-400" title="Delete Note"><Trash2 size={16} /></button>
+                                                    </div>
+                                                </div>
+                                                <div className="prose prose-invert max-w-none whitespace-pre-wrap">
+                                                    {selectedNote.text || selectedNote.content || ''}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                ) : (
+                                    <div className="flex items-center justify-center h-full min-h-[50vh] text-gray-500">
+                                        <p>Select a note from the left to view or edit.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </section>
+                        );
+                    }
+                    return null;
+                })()}
 
             </section>
             <GenericAddEditModal isOpen={showModal} onSave={handleSave} onClose={() => setShowModal(false)} initialData={editingEntry} formFields={visaFormFields} title="Visa Entry"/>
             <GenericAddEditModal isOpen={showPnlModal} onSave={handlePnlSave} onClose={() => setShowPnlModal(false)} initialData={editingPnlEntry} formFields={visaPnlFormFields} title="Visa P&L Entry"/>
-            {showNoteModal && (
-                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-                    <div className="bg-white dark:bg-gray-800 rounded-lg p-6 w-96 shadow-lg">
-                        <h3 className="text-lg font-semibold mb-4 text-gray-800 dark:text-white">{editingNote ? 'Edit Note' : 'Add Note'}</h3>
-                        <textarea
-                            value={noteContent}
-                            onChange={(e) => setNoteContent(e.target.value)}
-                            placeholder="Type your note here..."
-                            className="w-full h-40 p-3 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white text-gray-800 resize-none focus:outline-none focus:border-cyan-500"
-                        />
-                        <div className="flex gap-2 justify-end mt-4">
-                            <button
-                                onClick={() => {
-                                    setShowNoteModal(false);
-                                    setNoteContent('');
-                                    setEditingNote(null);
-                                }}
-                                className="px-4 py-2 rounded-lg bg-gray-300 dark:bg-gray-700 text-gray-800 dark:text-white hover:bg-gray-400 dark:hover:bg-gray-600 transition-colors"
-                            >
-                                Cancel
-                            </button>
-                            <button
-                                onClick={handleSaveNote}
-                                className="px-4 py-2 rounded-lg bg-cyan-500 text-white hover:bg-cyan-600 transition-colors"
-                            >
-                                Save
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 };
@@ -5159,7 +5291,7 @@ const PayCardsPage = ({ userId, appId, setLastAction, setConfirmAction, theme, c
                 <table className="w-full text-sm border-separate" style={{borderSpacing: '0 4px'}}>
                     <thead className="text-xs dark:text-gray-400 text-gray-600 uppercase">
                         <tr>
-                            <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Employee Name</div></th>
+                            <th className="p-0 font-semibold text-left w-24"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Employee Name</div></th>
                             <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Company</div></th>
                             <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Card Number</div></th>
                             <th className="p-0 font-semibold text-left"><div className="dark:bg-slate-900 bg-gray-200 px-3 py-2 rounded-md border dark:border-slate-700/50">Card PIN</div></th>
@@ -5173,7 +5305,7 @@ const PayCardsPage = ({ userId, appId, setLastAction, setConfirmAction, theme, c
                             const cellClassName = `p-2 dark:bg-gray-800/50 bg-gray-50`;
                             return (
                                 <tr key={card.id} className="group/row">
-                                    <td className={`${cellClassName} rounded-l-md font-semibold`}>{card.employeeName}</td>
+                                    <td className={`${cellClassName} rounded-l-md font-semibold max-w-[6rem] truncate`}>{card.employeeName}</td>
                                     <td className={cellClassName}>{card.company}</td>
                                     <td className={`${cellClassName} font-mono text-blue-400`}>{card.payCard}</td>
                                     <td className={`${cellClassName} font-mono`}>{card.payCardPin || '-'}</td>
@@ -9036,26 +9168,10 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                             <EditableTH initialValue={headers.passport} onSave={(val) => onHeaderSave('passport', val)} className="w-20" />
                             <EditableTH initialValue={headers.labourContract} onSave={(val) => onHeaderSave('labourContract', val)} className="w-20" />
                             <EditableTH initialValue={headers.payCard} onSave={(val) => onHeaderSave('payCard', val)} className="w-20" />
-                            <th className="w-12 p-0 font-semibold text-center">
-                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
-                                    QID Copy
-                                </div>
-                            </th>
-                            <th className="w-12 p-0 font-semibold text-center">
-                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
-                                    PP Copy
-                                </div>
-                            </th>
-                            <th className="w-12 p-0 font-semibold text-center">
-                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
-                                    LC Copy
-                                </div>
-                            </th>
-                            <th className="w-12 p-0 font-semibold text-center">
-                                <div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50 flex justify-center items-center h-[32px] text-[10px]">
-                                    Settlement
-                                </div>
-                            </th>
+                            <EditableTH initialValue={headers.qidCopy} onSave={(val) => onHeaderSave('qidCopy', val)} className="w-12 text-center text-[10px]" />
+                            <EditableTH initialValue={headers.ppCopy} onSave={(val) => onHeaderSave('ppCopy', val)} className="w-12 text-center text-[10px]" />
+                            <EditableTH initialValue={headers.lcCopy} onSave={(val) => onHeaderSave('lcCopy', val)} className="w-12 text-center text-[10px]" />
+                            <EditableTH initialValue={headers.settlement} onSave={(val) => onHeaderSave('settlement', val)} className="w-12 text-center text-[10px]" />
                             <th className="w-16 p-0 font-semibold text-center"><div className="dark:bg-slate-900 bg-gray-200 px-1 py-2 rounded-md border dark:border-slate-700/50 text-[10px] h-[32px] flex items-center justify-center">Actions</div></th>
                         </tr>
                     </thead>
@@ -9089,9 +9205,9 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                             className="h-3 w-3 rounded dark:bg-gray-700 bg-gray-300 border-gray-600 focus:ring-cyan-500"
                                         />
                                     </td>
-                                    <td className={`${cellClassName} truncate text-[11px]`}>{index + 1}</td>
-                                    <td className={`${cellClassName} truncate text-[11px]`}>{e.eNo}</td>
-                                    <td className={`${cellClassName} truncate text-[11px]`}>{e.gender}</td>
+                                    <td className={`${cellClassName} truncate text-sm`}>{index + 1}</td>
+                                    <td className={`${cellClassName} truncate text-sm`}>{e.eNo}</td>
+                                    <td className={`${cellClassName} truncate text-sm`}>{e.gender}</td>
                                     <td className={`${cellClassName} font-semibold truncate`}>
                                         <div className="flex items-center justify-between">
                                             {/* --- ADDED PHOTO/PLACEHOLDER --- */}
@@ -9109,7 +9225,7 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                             )}
                                             {/* --- END OF PHOTO/PLACEHOLDER --- */}
                                             
-                                            <span className="text-left w-full truncate text-[11px]" title={e.fullName}>{e.fullName}</span>
+                                            <span className="text-left w-full truncate text-sm" title={e.fullName}>{e.fullName}</span>
                                             <button 
                                                 onClick={() => handleCopy(e.fullName, e.id)} 
                                                 className="p-0.5 opacity-0 group-hover/row:opacity-100 hover:text-cyan-400 ml-1 flex-shrink-0"
@@ -9119,9 +9235,9 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                             </button>
                                         </div>
                                     </td>
-                                    <td className={`${cellClassName} truncate text-[11px]`} title={e.nationality}>{e.nationality}</td>
-                                    <td className={`${cellClassName} truncate text-[11px]`} title={e.profession}>{e.profession}</td>
-                                    <td className={`${cellClassName} truncate ${qidColorClass} text-[11px]`}>
+                                    <td className={`${cellClassName} truncate text-sm`} title={e.nationality}>{e.nationality}</td>
+                                    <td className={`${cellClassName} truncate text-sm`} title={e.profession}>{e.profession}</td>
+                                    <td className={`${cellClassName} truncate ${qidColorClass} text-sm`}>
                                         <div className="flex items-center justify-between">
                                             <span className="text-left w-full truncate" title={e.qid}>{e.qid}</span>
                                             <button 
@@ -9133,8 +9249,8 @@ const EmployeeTable = ({ title, employees, onEdit, onDelete, onViewDetails, head
                                             </button>
                                         </div>
                                     </td>
-                                    <td className={`${cellClassName} truncate ${qidColorClass} text-[11px]`}>{formatDate(e.qidExpiry)}</td>
-                                    <td className={`${cellClassName} truncate text-[11px]`}>{e.contact1}</td>
+                                    <td className={`${cellClassName} truncate ${qidColorClass} text-sm`}>{formatDate(e.qidExpiry)}</td>
+                                    <td className={`${cellClassName} truncate text-sm`}>{e.contact1}</td>
                                     <td className={`${cellClassName}`}>
                                         <div className="flex items-center justify-center h-full">
                                             <span className={`inline-flex items-center justify-center px-2 py-1 text-[10px] font-semibold rounded-full whitespace-nowrap h-5 ${getStatusStyle(e.status)}`}>{e.status}</span>
@@ -9204,7 +9320,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
     const [nationalityFilter, setNationalityFilter] = useState('');
     const [professionFilter, setProfessionFilter] = useState('');
     const [showPayCardModal, setShowPayCardModal] = useState(false);
-    const [headers, setHeaders] = useState({ eNo: 'E.NO', gender: 'Gender', fullName: 'Full Name', nationality: 'Nationality', profession: 'Profession', qid: 'QID', qidExpiry: 'QID Expiry', contact1: 'Contact', status: 'Employee Status', passport: 'Passport', labourContract: 'Contract', payCard: 'Pay Card'});
+    const [headers, setHeaders] = useState({ eNo: 'E.NO', gender: 'Gender', fullName: 'Full Name', nationality: 'Nationality', profession: 'Profession', qid: 'QID', qidExpiry: 'QID Expiry', contact1: 'Contact', status: 'Employee Status', passport: 'Passport', labourContract: 'Contract', payCard: 'Pay Card', qidCopy: 'QID Copy', ppCopy: 'PP Copy', lcCopy: 'LC Copy', settlement: 'Settlement'});
     // Document preview modal state
     const [docPreview, setDocPreview] = useState(null); // { url, type, employeeName }
     const [docUploadStates, setDocUploadStates] = useState({}); // key `${empId}_${type}` => { uploading: bool, error: string|null }
@@ -10063,7 +10179,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                         <thead className="text-xs dark:text-gray-400 text-gray-500 uppercase">
                                             <tr>
                                                 <th className="p-0 font-semibold text-left w-12"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">S.No</div></th>
-                                                <th className="p-0 font-semibold text-left min-w-[140px]"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Full Name</div></th>
+                                                <th className="p-0 font-semibold text-left w-40"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Full Name</div></th>
                                                 <th className="p-0 font-semibold text-left w-24"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Nationality</div></th>
                                                 <th className="p-0 font-semibold text-left w-28"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">QID</div></th>
                                                 <th className="p-0 font-semibold text-left w-32"><div className="dark:bg-slate-900 bg-gray-200 px-2 py-2 rounded-md border dark:border-slate-700/50">Paycard No.</div></th>
@@ -10075,16 +10191,8 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                         <tbody>
                                             {paycardsEmployees.map((e, index) => {
                                                 const cellClassName = `p-2 dark:bg-gray-800/50 bg-gray-50`;
-                                                // Auto-determine status based on logic
+                                                // Display the saved status or default
                                                 let displayStatus = e.payCardStatus || 'Apply for New';
-                                                if (e.payCard && e.payCard.trim() !== '') {
-                                                    // If card number exists, check expiry
-                                                    if (e.payCardExpiry && isDateExpired(e.payCardExpiry)) {
-                                                        displayStatus = 'Expired';
-                                                    } else if (displayStatus !== 'Own Cards') {
-                                                        displayStatus = 'Active';
-                                                    }
-                                                }
                                                 
                                                 const statusColors = {
                                                     'Active': 'bg-green-500/20 text-green-400',
@@ -10097,7 +10205,7 @@ const GenericEmployeePage = ({ userId, appId, pageTitle, collectionPath, setConf
                                                 return (
                                                     <tr key={e.id} className="group/row">
                                                         <td className={`${cellClassName} rounded-l-md text-center`}>{index + 1}</td>
-                                                        <td className={`${cellClassName} font-semibold whitespace-nowrap overflow-hidden text-ellipsis max-w-[140px]`} title={e.fullName}>{e.fullName}</td>
+                                                        <td className={`${cellClassName} font-semibold truncate max-w-[160px]`} title={e.fullName}>{e.fullName}</td>
                                                         <td className={`${cellClassName} text-xs`}>{e.nationality}</td>
                                                         <td className={`${cellClassName} font-mono text-xs`}>{e.qid}</td>
                                                         <td className={`${cellClassName} font-mono text-blue-400 text-xs`}>{e.payCard || '-'}</td>

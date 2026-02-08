@@ -2783,49 +2783,9 @@ const NotificationPage = ({ userId, appId }) => {
              { path: 'alMarriData', company: 'Al Marri' },
              { path: 'fathoomData', company: 'Fathoom' }
         ];
-        const employeeDocTypes = [
-            { type: 'QID', dateField: 'qidExpiry', days: 30 },
-            { type: 'Passport', dateField: 'passportExpiry', days: 30 },
-            { type: 'Pay Card', dateField: 'payCardExpiry', days: 30 },
-            { type: 'Contract', dateField: 'labourContractExpiry', days: 30 },
-        ];
+        
         employeeScanConfig.forEach(config => {
-            (liveData[config.path] || []).filter(item => item.status === 'Active').forEach(item => {
-                employeeDocTypes.forEach(docType => {
-                    const dateValue = item[docType.dateField];
-                    if (!dateValue) return;
-                    
-                    // Handle both Firestore Timestamp and regular Date objects
-                    let expiryDate;
-                    if (dateValue.toDate && typeof dateValue.toDate === 'function') {
-                        expiryDate = dateValue.toDate();
-                    } else if (dateValue instanceof Date) {
-                        expiryDate = dateValue;
-                    } else if (typeof dateValue === 'string') {
-                        expiryDate = new Date(dateValue);
-                    } else {
-                        return; // Skip if not a valid date format
-                    }
-                    
-                    if (expiryDate && !isNaN(expiryDate.getTime())) {
-                        const warningDate = new Date();
-                        warningDate.setDate(new Date().getDate() + docType.days);
-                        if (expiryDate <= warningDate) {
-                             const isExpired = expiryDate < today;
-                             notificationsBySource.employees.push({
-                                id: item.id,
-                                title: `${docType.type} expiring for ${item.fullName}`,
-                                description: `Expiry Date: ${formatDate(expiryDate)}`,
-                                date: expiryDate,
-                                isExpired: isExpired,
-                                source: config.company,
-                             });
-                        }
-                    }
-                });
-            });
-
-            // Add notification for changed/cancelled employees to cancel their pay card
+            // Only add notification for changed/cancelled employees to cancel their pay card
             (liveData[config.path] || [])
                 .filter(item => (item.status === 'Changed' || item.status === 'Cancelled'))
                 .forEach(item => {
@@ -3191,6 +3151,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [selectedYear, setSelectedYear] = useState(new Date().getFullYear());
     const [selectedMonth, setSelectedMonth] = useState(new Date().getMonth());
     const entriesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/visa_entries`), [userId, appId]);
+    const viewSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, 'visaView'), [userId, appId]);
     const [searchTerm, setSearchTerm] = useState('');
 
     const [pnlEntries, setPnlEntries] = useState([]);
@@ -3217,6 +3178,20 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const [editNoteText, setEditNoteText] = useState('');
 
     const tickedItemsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/visaSettings/tickedItems`), [userId, appId]);
+
+    // Load view settings
+    useEffect(() => {
+        if (!viewSettingsRef) return;
+        const unsub = onSnapshot(viewSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.view) setView(data.view);
+                if (data.selectedYear) setSelectedYear(data.selectedYear);
+                if (data.selectedMonth !== undefined) setSelectedMonth(data.selectedMonth);
+            }
+        });
+        return () => unsub();
+    }, [viewSettingsRef]);
 
     // Load pinned visas
     useEffect(() => {
@@ -3867,6 +3842,20 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
     const years = useMemo(() => [...new Set(entries.map(e => getDateFromField(e.date)?.getFullYear()))].filter(Boolean).sort((a,b) => b-a), [entries]);
     const months = useMemo(() => ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"], []);
 
+    // Save view settings to Firestore
+    const saveViewSettings = useCallback(async (newView, newYear, newMonth) => {
+        if (!viewSettingsRef) return;
+        try {
+            await setDoc(viewSettingsRef, {
+                view: newView !== undefined ? newView : view,
+                selectedYear: newYear !== undefined ? newYear : selectedYear,
+                selectedMonth: newMonth !== undefined ? newMonth : selectedMonth
+            }, { merge: true });
+        } catch (error) {
+            console.error('Failed to save view settings:', error);
+        }
+    }, [viewSettingsRef, view, selectedYear, selectedMonth]);
+
     const filteredEntries = useMemo(() => {
         let tempEntries = entries; // Start with all entries
 
@@ -4361,7 +4350,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                         </div>
                         <select 
                             value={view} 
-                            onChange={e => setView(e.target.value)} 
+                            onChange={e => { setView(e.target.value); saveViewSettings(e.target.value); }} 
                             className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300"
                         >
                             <option value="recent">Recent</option>
@@ -4372,7 +4361,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                         {(view === 'yearly' || view === 'monthly') && (
                             <select 
                                 value={selectedYear} 
-                                onChange={e => setSelectedYear(Number(e.target.value))} 
+                                onChange={e => { const year = Number(e.target.value); setSelectedYear(year); saveViewSettings(undefined, year); }} 
                                 className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300"
                             >
                                 {years.map(y => <option key={y} value={y}>{y}</option>)}
@@ -4381,7 +4370,7 @@ const VisaPage = ({ userId, appId, setConfirmAction, currency }) => {
                         {view === 'monthly' && (
                             <select 
                                 value={selectedMonth} 
-                                onChange={e => setSelectedMonth(Number(e.target.value))} 
+                                onChange={e => { const month = Number(e.target.value); setSelectedMonth(month); saveViewSettings(undefined, undefined, month); }} 
                                 className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300"
                             >
                                 {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
@@ -6575,6 +6564,7 @@ const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmA
     const entriesRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${collectionPath}`), [userId, appId, collectionPath]);
     const companyPrefix = collectionPath.replace('EmployeePnl', '');
     const employeeDataRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/${companyPrefix}Data`), [userId, appId, companyPrefix]);
+    const viewSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, `${collectionPath}View`), [userId, appId, collectionPath]);
 
     useEffect(() => {
         const unsubEntries = onSnapshot(entriesRef, snapshot => {
@@ -6590,6 +6580,34 @@ const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmA
             unsubEmployees();
         };
     }, [entriesRef, employeeDataRef]);
+
+    // Load view settings
+    useEffect(() => {
+        if (!viewSettingsRef) return;
+        const unsub = onSnapshot(viewSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.view) setView(data.view);
+                if (data.selectedYear) setSelectedYear(data.selectedYear);
+                if (data.selectedMonth !== undefined) setSelectedMonth(data.selectedMonth);
+            }
+        });
+        return () => unsub();
+    }, [viewSettingsRef]);
+
+    // Save view settings to Firestore
+    const saveViewSettings = useCallback(async (newView, newYear, newMonth) => {
+        if (!viewSettingsRef) return;
+        try {
+            await setDoc(viewSettingsRef, {
+                view: newView !== undefined ? newView : view,
+                selectedYear: newYear !== undefined ? newYear : selectedYear,
+                selectedMonth: newMonth !== undefined ? newMonth : selectedMonth
+            }, { merge: true });
+        } catch (error) {
+            console.error('Failed to save view settings:', error);
+        }
+    }, [viewSettingsRef, view, selectedYear, selectedMonth]);
 
     const handleToggleTick = useCallback((entryId) => {
         setTickedEntries(prev => {
@@ -6750,17 +6768,17 @@ const EmployeePnlPage = ({ userId, appId, pageTitle, collectionPath, setConfirmA
             <div className="flex items-center justify-between space-x-2 flex-wrap gap-2 no-print mb-4 p-4 dark:bg-gray-800 bg-white rounded-lg">
                 <div className="flex items-center space-x-2 flex-wrap gap-2">
                     <div className="flex items-center space-x-1 dark:bg-gray-700 bg-gray-200 p-1 rounded-lg border dark:border-gray-600 border-gray-300">
-                        <button onClick={() => setView('all')} className={`px-3 py-1 text-sm rounded-md ${view === 'all' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>All Time</button>
-                        <button onClick={() => setView('yearly')} className={`px-3 py-1 text-sm rounded-md ${view === 'yearly' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Yearly</button>
-                        <button onClick={() => setView('monthly')} className={`px-3 py-1 text-sm rounded-md ${view === 'monthly' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Monthly</button>
+                        <button onClick={() => { setView('all'); saveViewSettings('all'); }} className={`px-3 py-1 text-sm rounded-md ${view === 'all' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>All Time</button>
+                        <button onClick={() => { setView('yearly'); saveViewSettings('yearly'); }} className={`px-3 py-1 text-sm rounded-md ${view === 'yearly' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Yearly</button>
+                        <button onClick={() => { setView('monthly'); saveViewSettings('monthly'); }} className={`px-3 py-1 text-sm rounded-md ${view === 'monthly' ? 'bg-cyan-600 text-white' : 'dark:text-gray-300 text-gray-700 dark:hover:bg-gray-600 hover:bg-gray-300'}`}>Monthly</button>
                     </div>
                     {(view === 'yearly' || view === 'monthly') && (
-                        <select value={selectedYear} onChange={e => setSelectedYear(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
+                        <select value={selectedYear} onChange={e => { const year = Number(e.target.value); setSelectedYear(year); saveViewSettings(undefined, year); }} className="p-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
                             {years.map(y => <option key={y} value={y}>{y}</option>)}
                         </select>
                     )}
                     {view === 'monthly' && (
-                        <select value={selectedMonth} onChange={e => setSelectedMonth(Number(e.target.value))} className="p-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
+                        <select value={selectedMonth} onChange={e => { const month = Number(e.target.value); setSelectedMonth(month); saveViewSettings(undefined, undefined, month); }} className="p-2 dark:bg-gray-700 bg-gray-200 rounded-md text-sm border dark:border-gray-600 border-gray-300 dark:text-white text-gray-800">
                             {months.map((m, i) => <option key={m} value={i}>{m}</option>)}
                         </select>
                     )}
@@ -7248,6 +7266,8 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         transportation: ['Rental Charges', 'Transportation Charges', 'Others'],
         custom: ['General Income', 'General Expense', 'Others'],
     }), []);
+
+    const viewSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, 'businessView'), [userId, appId]);
     const [businessDescriptions, setBusinessDescriptions] = useState(defaultBusinessDescriptions);
 
     const commonProps = { userId, appId, currency, setConfirmAction, theme };
@@ -7833,6 +7853,34 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
         return () => unsub();
     }, [tickedEntriesRef]);
 
+    // Load view settings for BusinessPage
+    useEffect(() => {
+        if (!viewSettingsRef) return;
+        const unsub = onSnapshot(viewSettingsRef, (docSnap) => {
+            if (docSnap.exists()) {
+                const data = docSnap.data();
+                if (data.view) setView(data.view);
+                if (data.selectedYear) setSelectedYear(data.selectedYear);
+                if (data.selectedMonth !== undefined) setSelectedMonth(data.selectedMonth);
+            }
+        });
+        return () => unsub();
+    }, [viewSettingsRef]);
+
+    // Save view settings to Firestore
+    const saveViewSettings = useCallback(async (newView, newYear, newMonth) => {
+        if (!viewSettingsRef) return;
+        try {
+            await setDoc(viewSettingsRef, {
+                view: newView !== undefined ? newView : view,
+                selectedYear: newYear !== undefined ? newYear : selectedYear,
+                selectedMonth: newMonth !== undefined ? newMonth : selectedMonth
+            }, { merge: true });
+        } catch (error) {
+            console.error('Failed to save view settings:', error);
+        }
+    }, [viewSettingsRef, view, selectedYear, selectedMonth]);
+
     const handleAddSection = async (title) => {
         await addDoc(customSectionsRef, {
             title,
@@ -8075,7 +8123,7 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
 
                             {/* --- MOVED FILTERS START --- */}
                             <div className="flex items-center space-x-2 sm:space-x-4 flex-wrap gap-2 justify-center">
-                                <select value={view} onChange={e => setView(e.target.value)} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
+                                <select value={view} onChange={e => { setView(e.target.value); saveViewSettings(e.target.value); }} className="p-2 dark:bg-gray-700 bg-gray-200 dark:text-white text-gray-800 rounded-md border dark:border-gray-600 border-gray-300">
                                     <option value="recent">Recent</option>
                                     <option value="yearly">Yearly</option>
                                     <option value="monthly">Monthly</option>
@@ -8176,10 +8224,6 @@ const BusinessPage = ({ userId, appId, currency, setConfirmAction, theme }) => {
                                 className="p-2 dark:bg-blue-700 bg-blue-100 rounded-full dark:hover:bg-blue-600 hover:bg-blue-200 transition-all duration-300 disabled:opacity-50 border dark:border-blue-600 border-blue-300 dark:text-white text-blue-700 shadow-md hover:shadow-lg hover:scale-105 no-print"
                             >
                                 {isImporting ? <Loader2 size={18} className="animate-spin" /> : <ArrowDown size={18}/>}
-                            </button>
-                            {/* Clear All Button */}
-                            <button onClick={handleClearBusinessData} disabled={isClearingData || isExportingExcel} title="Clear All Business Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                                {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
                             </button>
                              <AddNewBusinessSection onAdd={handleAddSection} />
                         </div>
@@ -8759,7 +8803,7 @@ const AddEditEmployeeModal = ({ onSave, onClose, initialData, employees, userId,
                                         <select name="payCardStatus" value={formData.payCardStatus || 'Apply for New'} onChange={handleChange} className="w-full px-2 py-1.5 text-sm dark:bg-gray-700 bg-white rounded border dark:border-gray-600 border-gray-300 focus:ring-1 focus:ring-cyan-500 outline-none">
                                             <option value="Apply for New">Apply for New</option>
                                             <option value="Applied">Applied</option>
-                                            <option value="Active">Active</option>
+                                            <option value="Valid">Valid</option>
                                             <option value="Expired">Expired</option>
                                             <option value="Own Cards">Own Cards</option>
                                         </select>
@@ -10602,6 +10646,7 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
     const [pinnedEntryIds, setPinnedEntryIds] = useState(new Set()); // State for pinned IDs
     const pinnedEntriesRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/ledgerSettings/pinnedEntries`), [userId, appId]); // Firestore ref for pinned IDs
     const tickedEntriesRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/ledgerSettings/tickedEntries`), [userId, appId]); // Firestore ref for ticked IDs
+    const viewSettingsRef = useMemo(() => doc(db, `artifacts/${appId}/users/${userId}/pageSettings`, 'ledgerView'), [userId, appId]);
 
 
     const pinnedItemsRef = useMemo(() => collection(db, `artifacts/${appId}/users/${userId}/ledgerFavorites`), [userId, appId]);
@@ -11728,9 +11773,6 @@ const LedgerPage = ({ userId, appId, currency, collectionPath, setConfirmAction 
                                     </button>
                                 </>
                             )}
-                            <button onClick={handleClearLedgerData} disabled={isClearingData || isExportingExcel} title="Clear All Ledger Data" className="p-2.5 dark:bg-red-700 bg-red-100 text-sm rounded-md dark:hover:bg-red-800 hover:bg-red-200 no-print disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                                {isClearingData ? <Loader2 size={16} className="animate-spin" /> : <Trash2 size={16}/>}
-                            </button>
                             <div className="relative">
                                <input
                                     type="text"
@@ -15274,19 +15316,6 @@ const VisionPage = ({ userId, appId, onDownloadReport, setConfirmAction }) => {
                     </div>
                 </div>
 
-                {/* Separator */}
-                <div className="border-t dark:border-gray-700 border-gray-300 my-6"></div>
-
-                {/* Other Actions */}
-                <div>
-                    <h3 className="text-lg font-semibold mb-2 text-orange-400">Other Actions</h3>
-                    <div className="flex items-center gap-4 flex-wrap">
-                        <button onClick={handleClearAllData} disabled={isClearingData || isImporting || isExporting || isImportingExcel || isExportingExcel} className="flex items-center space-x-2 px-4 py-2 dark:bg-red-700 bg-red-100 rounded-md dark:hover:bg-red-800 hover:bg-red-200 transition-colors disabled:bg-gray-500 border dark:border-red-600 border-red-300 dark:text-white text-red-700">
-                            {isClearingData ? <Loader2 className="animate-spin" /> : <AlertTriangle size={18}/>}
-                            <span>{isClearingData ? 'Clearing Data...' : 'Clear All Data'}</span>
-                        </button>
-                    </div>
-                </div>
             </section>
             )}
             
